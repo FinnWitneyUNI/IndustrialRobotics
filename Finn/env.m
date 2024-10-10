@@ -52,9 +52,12 @@ classdef env < handle
             
             %place button on table
             %place emergency stop button on the wall
-            PlaceObject('button.ply',[1, -1, -1]);
+            %PlaceObject('button.ply',[1, -1, -1]);
 
-
+            %place emergency stop button on the wall
+            h = PlaceObject('estop.ply',[1.25, 0.89, -1]);
+            verts = [get(h,'Vertices'), ones(size(get(h,'Vertices'),1),1)] * trotx(pi);
+            set(h,'Vertices',verts(:,1:3))
  
         end
     end
