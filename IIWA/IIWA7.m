@@ -2,7 +2,7 @@ classdef IIWA7 < RobotBaseClass
     %% IIWA7 UR3e on a non-standard linear rail created by a student
 
     properties(Access = public)              
-        plyFileNameStem = 'IIWA7';
+        plyFileNameStem = 'IIWA';
     end
     
     methods
