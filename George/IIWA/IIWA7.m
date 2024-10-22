@@ -12,36 +12,38 @@ classdef IIWA7 < RobotBaseClass
             if nargin < 1			
 				baseTr = eye(4);				
             end
-            self.model.base = self.model.base.T * baseTr * trotx(pi/2) * troty(pi/2);
+            self.model.base = self.model.base.T * baseTr;
             
             self.PlotAndColourRobot();         
         end
 
-%% Create the robot model
-        function CreateModel(self)   
-            % Create the UR5 model mounted on a linear rail
-            link(1) = Link('d', 0.360, 'a', 0,       'alpha', pi/2, 'qlim', deg2rad([-170, 170]), 'offset', 0);   % Joint 1
-            link(2) = Link('d', 0,     'a', 0,       'alpha', -pi/2, 'qlim', deg2rad([-120, 120]), 'offset', pi/2);  % Joint 2
-            link(3) = Link('d', 0.420, 'a', 0,       'alpha', pi/2, 'qlim', deg2rad([-170, 170]), 'offset', 0);   % Joint 3
-            link(4) = Link('d', 0,     'a', 0,       'alpha', -pi/2, 'qlim', deg2rad([-120, 120]), 'offset', 0);   % Joint 4
-            link(5) = Link('d', 0.400, 'a', 0,       'alpha', pi/2, 'qlim', deg2rad([-170, 170]), 'offset', 0);   % Joint 5
-            link(6) = Link('d', 0,     'a', 0,       'alpha', -pi/2, 'qlim', deg2rad([-120, 120]), 'offset', 0);   % Joint 6
-            link(7) = Link('d', 0.126, 'a', 0,       'alpha', 0, 'qlim', deg2rad([-175, 175]), 'offset', 0);   % Joint 7
-            
-%             % Incorporate joint limits
-%             link(1).qlim = [-0.8 -0.01];
-%             link(2).qlim = [-360 360]*pi/180;
-%             link(3).qlim = [-90 90]*pi/180;
-%             link(4).qlim = [-170 170]*pi/180;
-%             link(5).qlim = [-360 360]*pi/180;
-%             link(6).qlim = [-360 360]*pi/180;
-%             link(7).qlim = [-360 360]*pi/180;
-%         
-%             link(3).offset = -pi/2;
-%             link(5).offset = -pi/2;
-            
-            self.model = SerialLink(link,'name',self.name);
-        end
+
+function CreateModel(self)   
+    % Define the DH parameters for the Kuka IIWA7
+    link(1) = Link('d',0.1575,'a',0,'alpha',0,'qlim',deg2rad([-170 170]), 'offset',0);   % Joint 1
+    link(2) = Link('d',0.2025,'a',0,'alpha',-pi/2,'qlim', deg2rad([-120 120]), 'offset',0);  % Joint 2
+    link(3) = Link('d',0,'a',0,'alpha',pi/2,'qlim', deg2rad([-170 170]), 'offset', 0);  % Joint 3
+    link(4) = Link('d',0.42,'a',0,'alpha',pi/2,'qlim',deg2rad([-120 120]),'offset', 0);  % Joint 4
+    link(5) = Link('d',0,'a',0,'alpha',-pi/2,'qlim',deg2rad([-170 170]), 'offset',0);  % Joint 5
+    link(6) = Link('d',0.4,'a',0,'alpha',-pi/2,'qlim',deg2rad([-120 120]), 'offset', 0);  % Joint 6
+    link(7) = Link('d',0,'a',0,'alpha',pi/2,'qlim',deg2rad([-175 175]), 'offset', 0);  % Joint 7
+    link(8) = Link('d',0.1135,'a',0,'alpha',0,'qlim',deg2rad([-175 175]), 'offset', 0);  % End Effector Link
+
+    
+    
+    
+    % Incorporate joint limits
+    link(1).qlim = deg2rad([-170 170]);
+    link(2).qlim = deg2rad([-120 120]);
+    link(3).qlim = deg2rad([-170 170]);
+    link(4).qlim = deg2rad([-120 120]);
+    link(5).qlim = deg2rad([-170 170]);
+    link(6).qlim = deg2rad([-120 120]);
+    link(7).qlim = deg2rad([-175 175]);
+    
+    % Define model name as Kuka IIWA7
+    self.model = SerialLink(link, 'name', 'Kuka IIWA7');
+end
      
     end
 end
