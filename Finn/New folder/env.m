@@ -23,12 +23,12 @@ classdef env < handle
             workspace = [-5 5 -5 5 -5 3];
             hold on;
             view(3);
-            axis([-2.5, 2.5, -2.5, 2.5, 0, 2]);
+            axis([-5, 5, -5, 5, 0, 3]);
 
             %camlight illuminates the env to get a btter view
             camlight;
             %concrete textruing for floor
-            surf([-2.5,-2.5;2.5,2.5],[-2.5,2.5;-2.5,2.5], [0.01,0.01;0.01,0.01] ...
+            surf([-5,-5;5,5],[-5,5;-5,5], [0.01,0.01;0.01,0.01] ...
                 ,'CData',imread('checkerboard.jpg') ...
                 ,'FaceColor','texturemap');
 
