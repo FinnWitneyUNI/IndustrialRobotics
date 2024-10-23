@@ -55,11 +55,20 @@ classdef WorkSpaceEnv < handle
             %PlaceObject('fence.ply',[0,-1.5,0]); 
             PlaceObject('kitchen1.ply',[-2.5,2.5,0]); 
 
+            %placing bread in final area to fill store
+            PlaceObject('bread.ply', [-0.25, -0.45, 0.76]);
+            PlaceObject('bread.ply', [-0.44, -0.45, 0.76]);
+            PlaceObject('bread.ply', [-0.65, -0.45, 0.76]);
+
+            %placing bread in begining
+            PlaceObject('bread.ply', [-1.70, -0.50, 0.76]);
+            PlaceObject('bread.ply', [-1.70, -0.33, 0.76]);
+           
             %place emergency stop button on the wall
-            h = PlaceObject('estop.ply',[0.25, 0.7, -0.67]);
+            h = PlaceObject('estop.ply',[0.25, 0.58, -0.67]);
             verts = [get(h,'Vertices'), ones(size(get(h,'Vertices'),1),1)] * trotx(pi);
             set(h,'Vertices',verts(:,1:3))
-            PlaceObject('fireExtinguisher.ply',[-0.75,-0.25,0]);
+            PlaceObject('fireExtinguisher.ply',[1.25,0.95,0]);
  
         end
     end

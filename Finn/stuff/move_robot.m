@@ -13,9 +13,9 @@ classdef move_robot < handle
 
             % Define the initial positions of the 9 bricks, each having xyz coordinates
             brickMatrix = zeros(3, 3);
-            brickMatrix(1, :) = [-1.9, -0.4, 0.75];
-            brickMatrix(2, :) = [-1.9, -0.4, 0.8];
-            brickMatrix(3, :) = [-1.9, -0.4, 0.85];
+            brickMatrix(1, :) = [-1.7, -0.5, 0.8];
+            brickMatrix(2, :) = [-1.7, -0.33, 0.8];
+            %brickMatrix(3, :) = [-1.9, -0.4, 0.85];
             % brickMatrix(4, :) = [-0.5, 0.35, 0.7];
             % brickMatrix(5, :) = [-0.4, 0.35, 0.7];
             % brickMatrix(6, :) = [-0.3, 0.35, 0.7];
@@ -25,9 +25,9 @@ classdef move_robot < handle
 
             % Define the final positions of bricks (as a stacked wall or grid)
             finalBrickMatrix = zeros(3, 3);
-            finalBrickMatrix(1, :) = [0.4, 0, 0.78];
-            finalBrickMatrix(2, :) = [0.4, 0.2, 0.98];
-            finalBrickMatrix(3, :) = [0.4, -0.2, 1.18];
+            finalBrickMatrix(1, :) = [-0.25, -0.45, 0.8];
+            finalBrickMatrix(2, :) = [-0.44, -0.45, 0.8];
+            %finalBrickMatrix(3, :) = [0.4, -0.2, 1.18];
             % finalBrickMatrix(4, :) = [0.4, 0.2, 0.72 + 0.033];
             % finalBrickMatrix(5, :) = [0.4, 0, 0.72 + 0.033];
             % finalBrickMatrix(6, :) = [0.4, -0.2, 0.72 + 0.033];
@@ -41,7 +41,7 @@ classdef move_robot < handle
             
             % Load a 3D object of the brick and place it in the scene
             for brickIndex = 1:numBricks
-                bricks{brickIndex} = PlaceObject('WholemealBread.ply');
+                bricks{brickIndex} = PlaceObject('bread.ply');
                 vertices = get(bricks{brickIndex}, 'Vertices');
                 transformedVertices = [vertices, ones(size(vertices, 1), 1)] * transl(brickMatrix(brickIndex, :))';
                 set(bricks{brickIndex}, 'Vertices', transformedVertices(:, 1:3));
