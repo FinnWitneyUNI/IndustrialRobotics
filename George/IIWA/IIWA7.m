@@ -14,12 +14,14 @@ classdef IIWA7 < RobotBaseClass
             end
             self.model.base = self.model.base.T * baseTr;
             
-            self.PlotAndColourRobot();         
+            self.PlotAndColourRobot(); 
+            self.model.teach();
         end
 
 
 function CreateModel(self)   
     % Define the DH parameters for the Kuka IIWA7
+    
     link(1) = Link('d',0.1575,'a',0,'alpha',0,'qlim',deg2rad([-170 170]), 'offset',0);   % Joint 1
     link(2) = Link('d',0.2025,'a',0,'alpha',-pi/2,'qlim', deg2rad([-120 120]), 'offset',0);  % Joint 2
     link(3) = Link('d',0,'a',0,'alpha',pi/2,'qlim', deg2rad([-170 170]), 'offset', 0);  % Joint 3
