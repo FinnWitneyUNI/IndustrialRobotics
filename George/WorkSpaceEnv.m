@@ -38,7 +38,7 @@ classdef WorkSpaceEnv < handle
                 ,'FaceColor','texturemap');
 
             %place table
-            PlaceObject('chonkytable.ply',[0,0,0.6]);
+            PlaceObject('SandwichWorkbench.ply',[-0.75,-0.52,0]);
             PlaceObject('plate.ply',[0.3,0,0.72]);
  
             % Place human object at a very far-off position for initial loading
@@ -52,11 +52,11 @@ classdef WorkSpaceEnv < handle
             % 
             %place fences 
             %PlaceObject('fence.ply',[0,1.5,0]); 
-            PlaceObject('fence.ply',[0,-1.5,0]); 
+            %PlaceObject('fence.ply',[0,-1.5,0]); 
             PlaceObject('kitchen1.ply',[-2.5,2.5,0]); 
 
             %place emergency stop button on the wall
-            h = PlaceObject('estop.ply',[0.7, 0.5, -0.68]);
+            h = PlaceObject('estop.ply',[0.25, 0.7, -0.67]);
             verts = [get(h,'Vertices'), ones(size(get(h,'Vertices'),1),1)] * trotx(pi);
             set(h,'Vertices',verts(:,1:3))
             PlaceObject('fireExtinguisher.ply',[-0.75,-0.25,0]);
