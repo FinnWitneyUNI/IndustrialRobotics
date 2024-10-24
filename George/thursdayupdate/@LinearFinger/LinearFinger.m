@@ -18,7 +18,7 @@ classdef LinearFinger < RobotBaseClass
             
             % If no base transformation is provided, default it to identity transformation.
             if nargin < 1			
-                baseTr = eye(4);  % Default base transformation is the identity matrix (no transformation)
+                baseTr = transl(0,0,0);  % Default base transformation is the identity matrix (no transformation)
             end
             
             % Apply the given base transformation to the robot's base.

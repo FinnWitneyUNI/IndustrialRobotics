@@ -15,7 +15,7 @@ classdef IIWA7 < RobotBaseClass
             self.model.base = self.model.base.T * baseTr;
             
             self.PlotAndColourRobot(); 
-             self.model.teach();
+            self.model.teach();
         end
 
 

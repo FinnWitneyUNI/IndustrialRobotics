@@ -9,19 +9,18 @@ classdef move_robot < handle
             profile on;
             
             % Calls method run from workspaceenv to set up the environment
-            WorkSpaceEnv.Run();
+            WorkSpaceEnv.Run()
 
             % Define the initial positions of the bricks
             brickMatrix = zeros(3, 3);
-            brickMatrix(1, :) = [-0.8, 0.37, 0.7];
-            brickMatrix(2, :) = [-0.7, 0.35, 0.7];
-            brickMatrix(3, :) = [-0.6, 0.35, 0.7];
-
+            brickMatrix(1, :) = [-1.85, -0.4, 0.75];
+            brickMatrix(2, :) = [-1.85, -0.4, 0.8];
+            brickMatrix(3, :) = [-1.85, -0.4, 0.85];
             % Define the final positions of bricks
             finalBrickMatrix = zeros(3, 3);
-            finalBrickMatrix(1, :) = [0.4, 0, 0.72];
-            finalBrickMatrix(2, :) = [0.4, 0.2, 0.72];
-            finalBrickMatrix(3, :) = [0.4, -0.2, 0.72];
+            finalBrickMatrix(1, :) = [0.4, 0, 0.78];
+            finalBrickMatrix(2, :) = [0.4, 0.2, 0.98];
+            finalBrickMatrix(3, :) = [0.4, -0.2, 1.18];
 
             % Number of bricks
             numBricks = 3;
@@ -29,65 +28,36 @@ classdef move_robot < handle
             
             % Load a 3D object of the brick and place it in the scene
             for brickIndex = 1:numBricks
-                bricks{brickIndex} = PlaceObject('bread.ply');
+                bricks{brickIndex} = PlaceObject('WholemealBread.ply');
                 vertices = get(bricks{brickIndex}, 'Vertices');
                 transformedVertices = [vertices, ones(size(vertices, 1), 1)] * transl(brickMatrix(brickIndex, :))';
                 set(bricks{brickIndex}, 'Vertices', transformedVertices(:, 1:3));
             end
             
             % Set up the UR3e robot model
-            defaultBaseTr = [1, 0, 0, 0; 0, 1, 0, 0; 0, 0, 1, 0.7; 0, 0, 0, 1];
+            defaultBaseTr = [1, 0, 0, 0; 0, 1, 0, 0; 0, 0, 1, 0.74; 0, 0, 0, 1];
             r = LinearUR3e(defaultBaseTr);  % UR3e robot
             r.model;
 
-            % Gripper setup (for UR3e)
-            gripper_finger_spacing = 0.1;  % Adjustment to prevent overlap
-            finger1 = LinearFinger();  % Left finger of the gripper
-            finger2 = LinearFinger();  % Right finger of the gripper
-
-            % **Attach gripper fingers to UR3e end-effector immediately**
-            % Get the UR3e end-effector transform
-            ur3eEndEffectorTransform = r.model.fkine(r.model.getpos()).T;
-
-            % Ensure both gripper fingers are transformed and rendered properly
-
-            % Position the left gripper finger (-x direction relative to the end-effector)
-            baseTr1 = ur3eEndEffectorTransform * transl(-gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2) * trotz(-pi/2);
-            finger1.model.base = baseTr1;
-
-            % Position the right gripper finger (+x direction relative to the end-effector)
-            baseTr2 = ur3eEndEffectorTransform * transl(gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2) * trotz(pi/2);
-            finger2.model.base = baseTr2;
-
-            % Render both fingers
-            finger1.model.animate([0, 0]);
-            drawnow();  % Ensure the first finger is drawn
-
             % Set up the IIWA7 robot model
-            translationX = transl(1, 0, 0);  % Offset along the x-axis for IIWA7
+            translationX = transl(-1.35, -1.2, 0);
             newBaseTr = defaultBaseTr * translationX;
             r2 = IIWA7(newBaseTr);  % IIWA7 robot
             r2.model;
+            %r2.model.teach();
 
             % Load the blade2 object and attach it to the IIWA7's end-effector
             blade2 = PlaceObject('blade2.ply');  % Load the blade2 end-effector model
             blade2Vertices = get(blade2, 'Vertices');  % Store the vertices for transformation
-
-            % **Attach blade to IIWA7 end-effector immediately**
-            iiwaEndEffectorTransform = r2.model.fkine(r2.model.getpos());  % Get IIWA7's end-effector transformation matrix
-            % Apply the transformation to the blade vertices
-            transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * iiwaEndEffectorTransform.T';
-            set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
-
+            
+            % Gripper setup (for UR3e)
+            gripper_finger_spacing = 0.1;  % Adjustment to prevent overlap
+            finger1 = LinearFinger();  % Left finger of the gripper
+            finger2 = LinearFinger();  % Right finger of the gripper
+            
             % Launch the external GUI for brick selection
             disp('Launching brick selection GUI...');
             select_brick_gui();  % Call the external GUI script
-
-            finger2.model.animate([0, 0]);  % Render the second finger
-
-            % Ensure both are drawn immediately
-            drawnow();
-
 
             % Wait for the user to select a brick (using a global variable)
             global selected_brick;
@@ -114,6 +84,9 @@ classdef move_robot < handle
             currentBrickPath = r.model.ikcon(transl(currentBrick) * troty(pi));
             currentQPath = jtraj(robotLocation, currentBrickPath, count);
 
+            % Initial position for IIWA7 robot (default, no movement)
+            qIIWA7 = zeros(1, 7);  % Configuration for IIWA7 (7 joints)
+
             % Prepare the original brick vertices
             originalBrickVertices = get(bricks{brickIndex}, 'Vertices');  % Get the original vertices
             
@@ -124,18 +97,24 @@ classdef move_robot < handle
             for i = 1:size(currentQPath, 1)
                 % Animate both robots
                 r.model.animate(currentQPath(i, :));  % Animate UR3e robot
-                % r2.model.animate(zeros(1, 7));  % Keep IIWA7 in default position (no movement for now)
+                % r2.model.animate(qIIWA7);  % IIWA7 stays stationary (you can add movements here)
 
                 % Get the end-effector transformation of UR3e
                 endEffectorTransform = r.model.fkine(r.model.getpos()).T;
 
-                % **Update gripper finger positions relative to the end-effector**
-                finger1.model.base = endEffectorTransform * transl(-gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2) * trotz(-pi/2);
-                finger2.model.base = endEffectorTransform * transl(gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2) * trotz(pi/2);
-
-                % Animate both fingers separately to ensure they are rendered
+                % Attach the gripper fingers to the end-effector
+                baseTr1 = endEffectorTransform * transl(-gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2)* trotz(-pi/2);;
+                finger1.model.base = baseTr1;
                 finger1.model.animate([0, 0]);
+                
+                baseTr2 = endEffectorTransform * transl(gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2)* trotz(pi/2);
+                finger2.model.base = baseTr2;
                 finger2.model.animate([0, 0]);
+
+                % Attach blade2 to the IIWA7's end-effector
+                iiwaEndEffectorTransform = r2.model.fkine(r2.model.getpos());  % Get IIWA7's end-effector position
+                transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * iiwaEndEffectorTransform.T';
+                set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
 
                 % **Brick Pickup Logic**
                 % When the robot reaches the brick, calculate the offset between the brick and end-effector
@@ -146,7 +125,6 @@ classdef move_robot < handle
                     brickToEndEffectorOffset = inv(endEffectorTransform) * brickTransform;  
                 end
 
-                % Redraw the scene after each finger update
                 drawnow();
             end
 
@@ -158,7 +136,7 @@ classdef move_robot < handle
             for i = 1:size(finalQPath, 1)
                 % Animate both robots
                 r.model.animate(finalQPath(i, :));  % Animate UR3e robot
-                r2.model.animate(zeros(1, 7));  % Keep IIWA7 stationary (or add movement if needed)
+                % r2.model.animate(qIIWA7);  % IIWA7 stays stationary (you can add movements here)
 
                 % Get the current end-effector transformation
                 endEffectorTransform = r.model.fkine(r.model.getpos()).T;
@@ -169,12 +147,13 @@ classdef move_robot < handle
                 transformedBrickVertices = [originalBrickVertices, ones(size(originalBrickVertices, 1), 1)] * brickTransform';
                 set(bricks{brickIndex}, 'Vertices', transformedBrickVertices(:, 1:3));  % Update brick position
 
-                % **Update gripper fingers relative to the end-effector**
-                finger1.model.base = endEffectorTransform * transl(-gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2) * trotz(-pi/2);
-                finger2.model.base = endEffectorTransform * transl(gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2) * trotz(pi/2);
-
-                % Animate both fingers
+                % Update gripper fingers
+                baseTr1 = endEffectorTransform * transl(-gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2);
+                finger1.model.base = baseTr1;
                 finger1.model.animate([0, 0]);
+
+                baseTr2 = endEffectorTransform * transl(gripper_finger_spacing / 2, 0, 0) * trotx(-pi/2);
+                finger2.model.base = baseTr2;
                 finger2.model.animate([0, 0]);
 
                 % Attach blade2 to IIWA7 end-effector

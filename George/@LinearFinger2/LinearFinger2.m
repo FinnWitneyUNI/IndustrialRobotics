@@ -1,4 +1,4 @@
-classdef LinearFinger < RobotBaseClass
+classdef LinearFinger2 < RobotBaseClass
     % The LinearFinger class defines a robotic finger model that inherits 
     % properties and methods from the base class "RobotBaseClass". This 
     % class creates a simple 2-link robot, which can act as a linear finger.
@@ -12,7 +12,7 @@ classdef LinearFinger < RobotBaseClass
         % This function is called when an instance of LinearFinger is created.
         % It initializes the model, sets its base transformation, and applies 
         % colors or visualization settings.
-        function self = LinearFinger(baseTr)
+        function self = LinearFinger2(baseTr)
             % Create the model of the robot (finger)
             self.CreateModel();
             
