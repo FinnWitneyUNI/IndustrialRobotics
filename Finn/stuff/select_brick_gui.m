@@ -1,3 +1,4 @@
+
 function select_brick_gui()
     global selected_brick;
     global isPaused;
