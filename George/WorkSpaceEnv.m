@@ -38,7 +38,11 @@ classdef WorkSpaceEnv < handle
                 ,'FaceColor','texturemap');
 
             %place table
-            PlaceObject('SandwichWorkbench.ply',[-0.75,-0.52,0]);
+    PlaceObject('SandwichWorkbench.ply',[-0.75,-0.52,0]);
+   
+    h_glass = PlaceObject('GlassCase.ply',[-0.75,-0.52,1.7]);        
+    alpha_value = 0.2;  % 0 is fully transparent, 1 is fully opaque
+    set(h_glass, 'FaceAlpha', alpha_value);  % Set transparency to 50%
            % PlaceObject('plate.ply',[0.3,0,0.72]);
  
             % Place human object at a very far-off position for initial loading
@@ -56,7 +60,7 @@ classdef WorkSpaceEnv < handle
             PlaceObject('kitchen1.ply',[-2.5,2.5,0]); 
 
             %place emergency stop button on the wall
-            h = PlaceObject('estop.ply',[0.25, 0.6, -0.67]);
+            h = PlaceObject('estop.ply',[0.25, 0.6, -0.6]);
             verts = [get(h,'Vertices'), ones(size(get(h,'Vertices'),1),1)] * trotx(pi);
             set(h,'Vertices',verts(:,1:3))
             PlaceObject('fireExtinguisher.ply',[2,0,0]);
