@@ -158,7 +158,7 @@ classdef move_robot < handle
             for i = 1:size(finalQPath, 1)
                 % Animate both robots
                 r.model.animate(finalQPath(i, :));  % Animate UR3e robot
-                % r2.model.animate(zeros(1, 7));  % Keep IIWA7 stationary (or add movement if needed)
+                r2.model.animate(zeros(1, 7));  % Keep IIWA7 stationary (or add movement if needed)
 
                 % Get the current end-effector transformation
                 endEffectorTransform = r.model.fkine(r.model.getpos()).T;
