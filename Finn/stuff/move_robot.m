@@ -4,7 +4,7 @@ classdef move_robot < handle
             % Clear workspace and initialize environment
             clear all;
             close all;
-            clf;
+            %clf;
             
             profile on;
             
@@ -25,7 +25,7 @@ classdef move_robot < handle
 
             % Define the final positions of bricks (as a stacked wall or grid)
             finalBrickMatrix = zeros(3, 3);
-            finalBrickMatrix(1, :) = [-0.25, -0.45, 0.8];
+            finalBrickMatrix(1, :) = [-1.35, -0.55, 0.76];
             finalBrickMatrix(2, :) = [-0.44, -0.45, 0.8];
             %finalBrickMatrix(3, :) = [0.4, -0.2, 1.18];
             % finalBrickMatrix(4, :) = [0.4, 0.2, 0.72 + 0.033];
@@ -89,6 +89,8 @@ classdef move_robot < handle
             for i = 1:size(currentQPath, 1)
                 r.model.animate(currentQPath(i, :));
                 drawnow();
+
+
             end
             
             % Move the selected brick to its final position
@@ -124,6 +126,7 @@ classdef move_robot < handle
                 
                 disp('Current Brick Position:');
                 disp(mean(get(bricks{brickIndex}, 'Vertices')));  % Brick center position at each step
+
             end
             
             % After the robot finishes moving, force the brick to its final position
