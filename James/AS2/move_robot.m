@@ -49,7 +49,7 @@ classdef move_robot < handle
             translationX = transl(1, 0, 0);  % Offset along the x-axis for IIWA7
             newBaseTr = defaultBaseTr * translationX;
             r2 = IIWA7(newBaseTr);  % IIWA7 robot
-            r2.model;
+            r2.model.teach;
 
             % Load the blade2 object and attach it to the IIWA7's end-effector
             blade2 = PlaceObject('blade2.ply');  % Load the blade2 end-effector model
@@ -61,17 +61,25 @@ classdef move_robot < handle
             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * iiwaEndEffectorTransform.T';
             set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
 
-            % Launch the external GUI for brick selection
-            disp('Launching brick selection GUI...');
-            select_brick_gui();  % Call the external GUI script
+            % **Ensure the blade follows IIWA's end-effector before GUI is chosen**
+            while true
+                % Get the current IIWA end-effector transform
+                iiwaEndEffectorTransform = r2.model.fkine(r2.model.getpos());  % Get IIWA7's end-effector position
+                transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * iiwaEndEffectorTransform.T';
+                set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));  % Update blade position
 
-            % Wait for the user to select a brick (using a global variable)
-            global selected_brick;
-            selected_brick = [];  % Initialize as empty
-            
-            % Keep checking until the user selects a brick
-            while isempty(selected_brick)
-                pause(0.1);  % Brief pause to wait for GUI interaction
+                % Animate the IIWA in a default idle position (could be any movement)
+                % r2.model.animate(zeros(1, 7));  % Idle position or any movement
+
+                drawnow();  % Render scene
+
+                % Check if a GUI option has been chosen (global variable `selected_brick`)
+                global selected_brick;
+                if ~isempty(selected_brick)
+                    break;  % Exit the loop when GUI option is selected
+                end
+                
+                pause(0.1);  % Small pause to avoid high CPU usage
             end
             
             % Now, move the selected brick based on the user's choice
@@ -128,13 +136,10 @@ classdef move_robot < handle
             for i = 1:size(finalQPath, 1)
                 % Animate both robots
                 r.model.animate(finalQPath(i, :));  % Animate UR3e robot
-                % r2.model.animate(zeros(1, 7));  % Keep IIWA7 stationary (or add movement if needed)
-
-                % Get the current end-effector transformation
-                endEffectorTransform = r.model.fkine(r.model.getpos()).T;
 
                 % **Update Brick Position Based on End-Effector**
                 % Apply the calculated offset to the brick's position relative to the end-effector
+                endEffectorTransform = r.model.fkine(r.model.getpos()).T;
                 brickTransform = endEffectorTransform * brickToEndEffectorOffset;  % Recalculate brick transform based on end-effector
                 transformedBrickVertices = [originalBrickVertices, ones(size(originalBrickVertices, 1), 1)] * brickTransform';
                 set(bricks{brickIndex}, 'Vertices', transformedBrickVertices(:, 1:3));  % Update brick position
@@ -142,8 +147,8 @@ classdef move_robot < handle
                 % ** Update gripper position during animation **
                 gripper.attachToEndEffector(endEffectorTransform);  % Update the gripper's position
 
-                % Attach blade2 to IIWA7 end-effector
-                iiwaEndEffectorTransform = r2.model.fkine(r2.model.getpos());  % Get IIWA7's end-effector position
+                % **Attach blade2 to IIWA7's end-effector (update its position)**
+                iiwaEndEffectorTransform = r2.model.fkine(r2.model.getpos());  % Get IIWA7's current end-effector position
                 transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * iiwaEndEffectorTransform.T';
                 set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
 
