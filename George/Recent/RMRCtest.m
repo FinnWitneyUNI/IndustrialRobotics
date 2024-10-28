@@ -1,0 +1,47 @@
+% Run with RMRC
+ clc;
+ clf;
+ clear;
+ close all;
+ set(0, 'DefaultFigureWindowStyle', 'docked'); % Dock figures in the workspace
+%% Environment 
+WorkSpaceEnv.Run();
+
+%     % Define initial and final positions for UR3e bricks
+%     brickMatrix = [-1.35, -0.55, 0.76; -1.85, -0.4, 0.8; -1.85, -0.4, 0.85];
+%     finalBrickMatrix = [-0.44, -0.45, 0.76; -1.35, -0.55, 0.8; -1.35, -0.55, 1.1];
+%     numBricks = 3;
+%     bricks = cell(numBricks, 1);
+% 
+%     % Load bricks
+%     for brickIndex = 1:numBricks
+%         bricks{brickIndex} = PlaceObject('WholemealBread.ply');
+%         vertices = get(bricks{brickIndex}, 'Vertices');
+%         transformedVertices = [vertices, ones(size(vertices, 1), 1)] * transl(brickMatrix(brickIndex, :))';
+%         set(bricks{brickIndex}, 'Vertices', transformedVertices(:, 1:3));
+%     end
+ %% Robots
+            % Set up UR3e and IIWA models and attach tools
+            defaultBaseTr = [1, 0, 0, 0; 0, 1, 0, 0; 0, 0, 1, 0.74; 0, 0, 0, 1];
+            r = LinearUR3e(defaultBaseTr);
+            r.model;
+
+            % Set up the IIWA7 model and attach blade
+%             r2 = IIWA7(defaultBaseTr * transl(-1.35, -1.2, 0));
+%             r2.model;
+%             blade2 = PlaceObject('blade2.ply');
+%             blade2Vertices = get(blade2, 'Vertices');
+%             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * r2.model.fkine(r2.model.getpos()).T';
+%             set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
+ %% RMRC
+ % For UR3
+ t = 10;             % Total time (s)
+ deltaT = 0.05;      % Control frequency
+ T1 = r.model.fkine(r.model.getpos);         % Initial transform
+ T2 = transl(0.8,-1.575,1.25) * trotx(pi) * trotz(pi/2);          % Arm Up position (trot to rotate the end-effector orient
+ path = RMRC(r,true);
+ path.ResolvedMotionRateControl(T1,T2,t,deltaT);
+ 
+%  T3 = myUR3.model.fkine(r.model.getpos);
+%  T4 = transl(platePosition(1,1),platePosition(1,2),0.9) * trotx(pi) * trotz(pi/2);
+%  path.ResolvedMotionRateControl(T3,T4,t,deltaT);
