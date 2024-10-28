@@ -53,7 +53,7 @@ classdef move_robot < handle
                 % Execute IIWA movement first
                 if iiwa_movement_requested
                     disp('Moving IIWA to preset positions...');
-                    move_iiwa_two_positions(r2, blade2, blade2Vertices);
+                    move_iiwa_three_positions(r2, blade2, blade2Vertices);
                 end
 
                 % Follow up with UR3e movement
@@ -114,15 +114,25 @@ classdef move_robot < handle
     end
 end
 
-function move_iiwa_two_positions(r2, blade2, blade2Vertices)
-    % Define two preset positions for the IIWA with explicit SE3 objects
-    positions = {SE3(-1.2, -0.8, 0.76) * SE3.Rx(pi/2) * SE3.Ry(pi/4), ...
-                 SE3(-1.2, -0.8, 1.0) * SE3.Rx(pi/2) * SE3.Ry(pi/4)};
-    
-    for j = 1:length(positions)
-        targetQ = r2.model.ikcon(positions{j}.T);
+function move_iiwa_three_positions(r2, blade2, blade2Vertices)
+    % Define three target positions for the IIWA (replace these with your specific points)
+    iiwaPositions = [
+        -1.2, -0.8, 0.76;  % Position 1
+        -1.2, -0.6, 1.0;   % Position 2
+        -1.2, -0.4, 1.2    % Position 3
+    ];
+    orientation = trotx(pi);  % 180-degree rotation around X-axis for downward orientation
+
+    % Loop through each position
+    for j = 1:size(iiwaPositions, 1)
+        % Combine position with downward orientation
+        targetTransform = transl(iiwaPositions(j, :)) * orientation;
+        
+        % Calculate target joint angles for each position with orientation
+        targetQ = r2.model.ikcon(targetTransform);
         currentQPath = jtraj(r2.model.getpos(), targetQ, 100);
 
+        % Animate movement to the target position
         for i = 1:size(currentQPath, 1)
             r2.model.animate(currentQPath(i, :));
             endEffectorTransform = r2.model.fkine(r2.model.getpos()).T;
