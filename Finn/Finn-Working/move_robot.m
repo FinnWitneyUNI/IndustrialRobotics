@@ -35,87 +35,134 @@ classdef move_robot < handle
             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * r2.model.fkine(r2.model.getpos()).T';
             set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
 
+            % Default positions for resetting on Resume
+            ur3e_default_pos = r.model.getpos();
+            iiwa_default_pos = r2.model.getpos();
+
+            % Initialize GUI with persistent control
+            global selected_brick iiwa_movement_requested movement_requested ps4_control_enabled estop_activated resume_requested;
+            select_brick_gui();  % Keep GUI open
+
             % Main control loop to allow repeated GUI usage
-            global selected_brick iiwa_movement_requested movement_requested;
             while true
-                % Launch GUI for user to select options
-                selected_brick = [];
-                iiwa_movement_requested = false;
-                movement_requested = false;
-                select_brick_gui();
+                % Check for E-Stop
+                if estop_activated
+                    disp('E-Stop activated. Stopping all movements.');
+                    % Reset flags and pause until resume is requested
+                    selected_brick = [];
+                    iiwa_movement_requested = false;
+                    ps4_control_enabled = false;
 
-                % Wait until "Go" button is pressed
-                while ~movement_requested
-                    drawnow();
-                    pause(0.1);
+                    while ~resume_requested
+                        drawnow(); % Wait for Resume button
+                        pause(0.1);
+                    end
+
+                    % Reset robots to default positions on Resume
+                    r.model.animate(ur3e_default_pos);
+                    r2.model.animate(iiwa_default_pos);
+                    disp('Resuming simulation. Robots reset to default positions.');
+                    estop_activated = false;
+                    resume_requested = false;
                 end
 
-                % Execute IIWA movement first
-                if iiwa_movement_requested
-                    disp('Moving IIWA to preset positions...');
-                    move_iiwa_three_positions(r2, blade2, blade2Vertices);
+                % Start PS4 control if requested
+                if ps4_control_enabled && ~estop_activated
+                    disp('Starting PS4 control of IIWA end effector...');
+                    move_iiwa_with_ps4(r2, blade2, blade2Vertices);
+                    ps4_control_enabled = false; % Reset flag after control ends
                 end
 
-                % Follow up with UR3e movement
-                if ~isempty(selected_brick)
-                    brickIndex = selected_brick;
-                    disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
+                % Check and execute movements based on selections and Go button press
+                if movement_requested && ~estop_activated
+                    % If both IIWA and UR3 are selected, move IIWA first, then UR3
+                    if iiwa_movement_requested && ~isempty(selected_brick)
+                        disp('Moving IIWA to preset positions...');
+                        move_iiwa_three_positions(r2, blade2, blade2Vertices);
+
+                        % After IIWA completes, move UR3 to brick
+                        move_ur3_to_brick(r, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick);
                     
-                    % UR3e movement to selected brick and final location
-                    robotLocation = r.model.getpos();
-                    currentBrick = brickMatrix(brickIndex, :);
-                    finalBrick = finalBrickMatrix(brickIndex, :);
-                    count = 100;
-
-                    % Move UR3e to the selected brick
-                    currentBrickPath = r.model.ikcon(transl(currentBrick) * troty(pi));
-                    currentQPath = jtraj(robotLocation, currentBrickPath, count);
-                    originalBrickVertices = get(bricks{brickIndex}, 'Vertices');
-                    brickToEndEffectorOffset = eye(4);
-
-                    % Animate UR3e to approach the brick
-                    for i = 1:size(currentQPath, 1)
-                        r.model.animate(currentQPath(i, :));
-                        endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-                        gripper.attachToEndEffector(endEffectorTransform);
-                        if i == size(currentQPath, 1)
-                            brickTransform = transl(currentBrick);
-                            brickToEndEffectorOffset = inv(endEffectorTransform) * brickTransform;
-                        end
-                        drawnow();
+                    % If only IIWA is selected
+                    elseif iiwa_movement_requested
+                        disp('Moving only IIWA to preset positions...');
+                        move_iiwa_three_positions(r2, blade2, blade2Vertices);
+                    
+                    % If only UR3 is selected
+                    elseif ~isempty(selected_brick)
+                        disp('Moving only UR3 to Brick');
+                        move_ur3_to_brick(r, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick);
                     end
 
-                    % Move to final brick location
-                    finalBrickPath = r.model.ikcon(transl(finalBrick) * troty(pi));
-                    finalQPath = jtraj(currentBrickPath, finalBrickPath, count);
-                    for i = 1:size(finalQPath, 1)
-                        r.model.animate(finalQPath(i, :));
-                        endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-                        brickTransform = endEffectorTransform * brickToEndEffectorOffset;
-                        transformedBrickVertices = [originalBrickVertices, ones(size(originalBrickVertices, 1), 1)] * brickTransform';
-                        set(bricks{brickIndex}, 'Vertices', transformedBrickVertices(:, 1:3));
-                        gripper.attachToEndEffector(endEffectorTransform);
-                        drawnow();
-                    end
-
-                    % Force brick to final position
-                    disp('Forcing brick to final position.');
-                    currentBrickVertices = get(bricks{brickIndex}, 'Vertices');
-                    translation = finalBrick - mean(currentBrickVertices);
-                    set(bricks{brickIndex}, 'Vertices', currentBrickVertices + translation);
+                    % Reset selections and movement request for the next cycle
+                    selected_brick = [];
+                    iiwa_movement_requested = false;
+                    movement_requested = false;
                 end
 
-                % Reset flags for the next cycle
-                selected_brick = [];
-                iiwa_movement_requested = false;
-                movement_requested = false;
+                pause(0.1); % Small pause to avoid excessive CPU use
             end
         end
     end
 end
 
+% Function to move UR3 to the selected brick
+function move_ur3_to_brick(r, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex)
+    global estop_activated;
+    disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
+    robotLocation = r.model.getpos();
+    currentBrick = brickMatrix(brickIndex, :);
+    finalBrick = finalBrickMatrix(brickIndex, :);
+    count = 100;
+
+    % Move UR3e to the selected brick
+    currentBrickPath = r.model.ikcon(transl(currentBrick) * troty(pi));
+    currentQPath = jtraj(robotLocation, currentBrickPath, count);
+    originalBrickVertices = get(bricks{brickIndex}, 'Vertices');
+    brickToEndEffectorOffset = eye(4);
+
+    % Animate UR3e to approach the brick
+    for i = 1:size(currentQPath, 1)
+        if estop_activated, break; end  % Check for E-Stop
+        r.model.animate(currentQPath(i, :));
+        endEffectorTransform = r.model.fkine(r.model.getpos()).T;
+        gripper.attachToEndEffector(endEffectorTransform);
+        if i == size(currentQPath, 1)
+            brickTransform = transl(currentBrick);
+            brickToEndEffectorOffset = inv(endEffectorTransform) * brickTransform;
+        end
+        drawnow();
+    end
+
+    % Move to final brick location
+    if ~estop_activated
+        finalBrickPath = r.model.ikcon(transl(finalBrick) * troty(pi));
+        finalQPath = jtraj(currentBrickPath, finalBrickPath, count);
+        for i = 1:size(finalQPath, 1)
+            if estop_activated, break; end  % Check for E-Stop
+            r.model.animate(finalQPath(i, :));
+            endEffectorTransform = r.model.fkine(r.model.getpos()).T;
+            brickTransform = endEffectorTransform * brickToEndEffectorOffset;
+            transformedBrickVertices = [originalBrickVertices, ones(size(originalBrickVertices, 1), 1)] * brickTransform';
+            set(bricks{brickIndex}, 'Vertices', transformedBrickVertices(:, 1:3));
+            gripper.attachToEndEffector(endEffectorTransform);
+            drawnow();
+        end
+    end
+
+    % Force brick to final position if no E-Stop
+    if ~estop_activated
+        disp('Forcing brick to final position.');
+        currentBrickVertices = get(bricks{brickIndex}, 'Vertices');
+        translation = finalBrick - mean(currentBrickVertices);
+        set(bricks{brickIndex}, 'Vertices', currentBrickVertices + translation);
+    end
+end
+
+
 function move_iiwa_three_positions(r2, blade2, blade2Vertices)
-    % Define three target positions for the IIWA (replace these with your specific points)
+    global estop_activated;
+    % Define three target positions for the IIWA
     iiwaPositions = [
         -1.2, -0.8, 0.76;  % Position 1
         -1.2, -0.6, 1.0;   % Position 2
@@ -125,6 +172,7 @@ function move_iiwa_three_positions(r2, blade2, blade2Vertices)
 
     % Loop through each position
     for j = 1:size(iiwaPositions, 1)
+        if estop_activated, break; end  % Check E-Stop at each position
         % Combine position with downward orientation
         targetTransform = transl(iiwaPositions(j, :)) * orientation;
         
@@ -134,6 +182,7 @@ function move_iiwa_three_positions(r2, blade2, blade2Vertices)
 
         % Animate movement to the target position
         for i = 1:size(currentQPath, 1)
+            if estop_activated, break; end  % Check E-Stop within path
             r2.model.animate(currentQPath(i, :));
             endEffectorTransform = r2.model.fkine(r2.model.getpos()).T;
             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * endEffectorTransform';
@@ -141,4 +190,48 @@ function move_iiwa_three_positions(r2, blade2, blade2Vertices)
             drawnow();
         end
     end
+end
+
+% PS4 control function for the IIWA end effector
+function move_iiwa_with_ps4(r2, blade2, blade2Vertices)
+    global ps4_control_enabled estop_activated;  % Ensure these variables are accessible
+    joy = vrjoystick(1); % Initialize joystick; may need to change ID if multiple joysticks
+    duration = 300;  % Duration of control session
+    dt = 0.15;       % Time step for updates
+    Kv = 0.3;        % Linear velocity gain
+    Kw = 0.8;        % Angular velocity gain
+    deadZone = 0.1;  % Dead zone threshold to prevent unintended drift
+
+    % Start PS4 control loop
+    tic;
+    while toc < duration && ps4_control_enabled && ~estop_activated
+        % Read joystick input
+        [axes, buttons, ~] = read(joy);
+        
+        % Apply dead zone filtering to each axis
+        vx = Kv * (abs(axes(1)) > deadZone) * axes(1);
+        vy = Kv * (abs(axes(2)) > deadZone) * axes(2);
+        vz = Kv * ((buttons(5) - buttons(7)) ~= 0) * (buttons(5) - buttons(7));
+        wx = Kw * (abs(axes(4)) > deadZone) * axes(4);
+        wy = Kw * (abs(axes(3)) > deadZone) * axes(3);
+        wz = Kw * ((buttons(6) - buttons(8)) ~= 0) * (buttons(6) - buttons(8));
+        dx = [vx; vy; vz; wx; wy; wz];  % Combined velocity vector
+
+        % Calculate joint velocity using Damped Least-Squares with pseudoinverse
+        J = r2.model.jacob0(r2.model.getpos());
+        dq = pinv(J) * dx;
+
+        % Update joint angles based on joint velocities
+        q = r2.model.getpos() + dq' * dt;
+        r2.model.animate(q);
+
+        % Update end effector (blade) position
+        endEffectorTransform = r2.model.fkine(q).T;
+        transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * endEffectorTransform';
+        set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
+
+        % Wait for next time step
+        pause(dt);
+    end
+    disp('Exiting PS4 control mode.');
 end
