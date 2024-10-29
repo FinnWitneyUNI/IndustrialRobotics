@@ -101,6 +101,7 @@ classdef move_robot < handle
         end
     end
 end
+
 %% Function to move UR3 to the selected brick using RMRC
 function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex)
     global estop_activated;
@@ -161,10 +162,6 @@ function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, fin
     end
 end
 
-
-
-
-
 %% Function to move IIWA through three positions
 function move_iiwa_three_positions(r2, blade2, blade2Vertices)
     global estop_activated;
@@ -198,9 +195,9 @@ function move_iiwa_three_positions(r2, blade2, blade2Vertices)
     end
 end
 
-% PS4 control function for the IIWA end effector
+% PS4 control function for the IIWA end effector with E-Stop and Resume
 function move_iiwa_with_ps4(r2, blade2, blade2Vertices)
-    global ps4_control_enabled estop_activated;  % Ensure these variables are accessible
+    global ps4_control_enabled estop_activated resume_requested;
     joy = vrjoystick(1); % Initialize joystick; may need to change ID if multiple joysticks
     duration = 300;  % Duration of control session
     dt = 0.15;       % Time step for updates
@@ -210,10 +207,27 @@ function move_iiwa_with_ps4(r2, blade2, blade2Vertices)
 
     % Start PS4 control loop
     tic;
-    while toc < duration && ps4_control_enabled && ~estop_activated
+    while toc < duration && ps4_control_enabled
         % Read joystick input
         [axes, buttons, ~] = read(joy);
-        
+
+        % Check for E-Stop (button 3) and Resume (button 2) commands
+        if buttons(3) == 1 && ~estop_activated  % Button 3 for E-Stop
+            estop_activated = true;
+            ps4_control_enabled = false;  % Disable further PS4 control on E-Stop
+            resume_requested = false;  % Reset resume request
+            disp('E-Stop activated via PS4 controller.');
+            return;  % Exit function to handle E-Stop globally
+
+        elseif buttons(2) == 1 && estop_activated  % Button 2 for Resume only if E-Stop is active
+            resume_requested = true;
+            estop_activated = false;  % Clear the E-Stop if resume is requested
+            ps4_control_enabled = false;  % Stop PS4 control temporarily for resume
+            disp('Resume activated via PS4 controller.');
+            pause(0.1);  % Small delay to debounce the button
+            return;  % Exit function to re-enable movement globally
+        end
+
         % Apply dead zone filtering to each axis
         vx = Kv * (abs(axes(1)) > deadZone) * axes(1);
         vy = Kv * (abs(axes(2)) > deadZone) * axes(2);
