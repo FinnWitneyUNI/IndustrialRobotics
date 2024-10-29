@@ -64,7 +64,7 @@ classdef WorkSpaceEnv < handle
             h = PlaceObject('estop.ply',[0.25, 0.6, -0.6]);
             verts = [get(h,'Vertices'), ones(size(get(h,'Vertices'),1),1)] * trotx(pi);
             set(h,'Vertices',verts(:,1:3))
-            PlaceObject('fireExtinguisher.ply',[2,0,0]);
+            PlaceObject('fireExtinguisher.ply',[1.15,0.95,0.25]);
             PlaceObject('3D_MAN.ply',[1,-1.5,0]);
  
         end

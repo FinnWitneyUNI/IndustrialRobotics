@@ -188,15 +188,15 @@ function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, fin
                 currentBrickPos = mean(get(bricks{brickIndex}, 'Vertices'));
                 currentOffset = currentBrickPos - endEffectorPos;
 
-                disp('---Debug Position Info---');
-                disp('End effector position:');
-                disp(endEffectorPos);
-                disp('Current brick position:');
-                disp(currentBrickPos);
-                disp('Ghost brick position:');
-                disp(ghostBrickPos);
-                disp('Current offset (brick - end effector):');
-                disp(currentOffset);
+                %disp('---Debug Position Info---');
+                %disp('End effector position:');
+                %disp(endEffectorPos);
+                %disp('Current brick position:');
+                %disp(currentBrickPos);
+                %disp('Ghost brick position:');
+                %disp(ghostBrickPos);
+                %disp('Current offset (brick - end effector):');
+                %disp(currentOffset);
             end
             
             gripper.attachToEndEffector(endEffectorTransform);

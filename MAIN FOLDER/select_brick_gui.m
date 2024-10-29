@@ -14,11 +14,11 @@ function select_brick_gui()
     f = figure('Position', [100, 100, 300, 460], 'Name', 'Control Panel');
 
     % Dropdown menu for brick selection
-    uicontrol('Style', 'text', 'Position', [50, 380, 200, 20], 'String', 'Select a brick to move:');
+    uicontrol('Style', 'text', 'Position', [50, 380, 200, 20], 'String', 'Select a bread to move:');
     brick_menu = uicontrol('Style', 'popupmenu', 'Position', [50, 360, 200, 20], 'String', brick_names);
 
     % Button to confirm brick selection
-    uicontrol('Style', 'pushbutton', 'Position', [50, 320, 200, 30], 'String', 'Select Brick', 'Callback', @select_brick);
+    uicontrol('Style', 'pushbutton', 'Position', [50, 320, 200, 30], 'String', 'Select Bread', 'Callback', @select_brick);
 
     % Button to move IIWA
     uicontrol('Style', 'pushbutton', 'Position', [50, 280, 200, 30], 'String', 'Move IIWA', 'Callback', @request_iiwa_move);
