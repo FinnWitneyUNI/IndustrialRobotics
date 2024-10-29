@@ -38,8 +38,13 @@ classdef WorkSpaceEnv < handle
                 ,'FaceColor','texturemap');
 
             %place table
-            PlaceObject('SandwichWorkbench.ply',[-0.75,-0.52,0]);
-            PlaceObject('plate.ply',[0.3,0,0.72]);
+    PlaceObject('SandwichWorkbench.ply',[-0.75,-0.52,0]);
+    PlaceObject('JamTub.ply',[-0.947,-0.647,0.69]);
+   
+     h_glass = PlaceObject('GlassCase.ply',[-0.75,-0.52,1.7]);        
+     alpha_value = 0.1;  % 0 is fully transparent, 1 is fully opaque
+     set(h_glass, 'FaceAlpha', alpha_value);  % Set transparency to 50%
+           % PlaceObject('plate.ply',[0.3,0,0.72]);
  
             % Place human object at a very far-off position for initial loading
             % h = PlaceObject('3D_MAN.ply', [-1000, 0, 1000]);
@@ -53,22 +58,14 @@ classdef WorkSpaceEnv < handle
             %place fences 
             %PlaceObject('fence.ply',[0,1.5,0]); 
             %PlaceObject('fence.ply',[0,-1.5,0]); 
-            PlaceObject('kitchen1.ply',[-2.5,2.5,0]); 
-
-            %placing bread in final area to fill store
-            PlaceObject('bread.ply', [-0.25, -0.45, 0.76]);
-            PlaceObject('bread.ply', [-0.44, -0.45, 0.76]);
-            PlaceObject('bread.ply', [-0.65, -0.45, 0.76]);
-
-            %placing bread in begining
-            PlaceObject('bread.ply', [-1.70, -0.50, 0.76]);
-            PlaceObject('bread.ply', [-1.70, -0.33, 0.76]);
-           
+            PlaceObject('kitchen.ply',[-2.5,2.5,0]); 
+            
             %place emergency stop button on the wall
-            h = PlaceObject('estop.ply',[0.25, 0.58, -0.67]);
+            h = PlaceObject('estop.ply',[0.25, 0.6, -0.6]);
             verts = [get(h,'Vertices'), ones(size(get(h,'Vertices'),1),1)] * trotx(pi);
             set(h,'Vertices',verts(:,1:3))
-            PlaceObject('fireExtinguisher.ply',[1.25,0.95,0]);
+            PlaceObject('fireExtinguisher.ply',[2,0,0]);
+            PlaceObject('3D_MAN.ply',[1,-1.5,0]);
  
         end
     end
