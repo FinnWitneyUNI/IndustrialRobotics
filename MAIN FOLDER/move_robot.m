@@ -1,4 +1,8 @@
 classdef move_robot < handle
+    properties (Constant)
+        collisionThreshold = 0.05;  % Collision threshold distance
+    end
+    
     methods (Static)
         function robot()
             % Initialize environment and load GUI
@@ -19,17 +23,16 @@ classdef move_robot < handle
                 transformedVertices = [vertices, ones(size(vertices, 1), 1)] * transl(brickMatrix(brickIndex, :))';
                 set(bricks{brickIndex}, 'Vertices', transformedVertices(:, 1:3));
             end
-            
-            %Load Jam
-            jamInitialPos = [-0.947,-0.647,0.8];  % Initial position for jam
-            jamFinalPos = [-1.35, -0.55, 0.88];    % Final position for jam
-            jam = PlaceObject('Jam.ply');         % Make sure you have a Jam.ply file
+
+            % Load Jam
+            jamInitialPos = [-0.947, -0.647, 0.8];
+            jamFinalPos = [-1.35, -0.55, 0.88];
+            jam = PlaceObject('Jam.ply');
             jamVertices = get(jam, 'Vertices');
             transformedJamVertices = [jamVertices, ones(size(jamVertices, 1), 1)] * transl(jamInitialPos)';
             set(jam, 'Vertices', transformedJamVertices(:, 1:3));
 
-
-            %% Set up UR3e and IIWA models and attach tools
+            % Set up UR3e and IIWA models and attach tools
             defaultBaseTr = [1, 0, 0, 0; 0, 1, 0, 0; 0, 0, 1, 0.74; 0, 0, 0, 1];
             r = LinearUR3e(defaultBaseTr);
             r.model;
@@ -42,15 +45,16 @@ classdef move_robot < handle
             % Set up the IIWA7 model and attach blade
             r2 = IIWA7(defaultBaseTr * transl(-1.35, -1.2, 0));
             r2.model;
-            
-            % Set initial bent configuration
-            initial_q = [pi/2, pi/8, 0, -pi/2, 0, pi/3, 0];  % Adjust these angles as needed
+            initial_q = [pi/2, pi/8, 0, -pi/2, 0, pi/3, 0];
             r2.model.animate(initial_q);
-            
+
             blade2 = PlaceObject('blade2.ply');
             blade2Vertices = get(blade2, 'Vertices');
             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * r2.model.fkine(r2.model.getpos()).T';
             set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
+
+            % Generate obstacle points for collision detection
+            obstaclePoints = move_robot.generate_obstacle_point_clouds([-1.0, -0.5, 0.8; -1.3, -0.6, 0.75], 0.05);
 
             % Default positions for resetting on Resume
             ur3e_default_pos = r.model.getpos();
@@ -58,11 +62,10 @@ classdef move_robot < handle
 
             % Initialize GUI with persistent control
             global selected_brick iiwa_movement_requested movement_requested ps4_control_enabled estop_activated resume_requested;
-            select_brick_gui(r2, r);  % Keep GUI open
+            select_brick_gui(r2, r);
 
             % Main control loop to allow repeated GUI usage
             while true
-                % Check for E-Stop
                 if estop_activated
                     disp('E-Stop activated. Stopping all movements.');
                     selected_brick = [];
@@ -74,7 +77,6 @@ classdef move_robot < handle
                         pause(0.1);
                     end
 
-                    % Reset robots to default positions on Resume
                     r.model.animate(ur3e_default_pos);
                     r2.model.animate(iiwa_default_pos);
                     disp('Resuming simulation. Robots reset to default positions.');
@@ -82,27 +84,23 @@ classdef move_robot < handle
                     resume_requested = false;
                 end
 
-                % Start PS4 control if requested
                 if ps4_control_enabled && ~estop_activated
                     disp('Starting PS4 control of IIWA end effector...');
                     move_iiwa_with_ps4(r2, blade2, blade2Vertices);
                     ps4_control_enabled = false;
                 end
 
-                % Check and execute movements based on selections
                 if movement_requested && ~estop_activated
                     if iiwa_movement_requested && ~isempty(selected_brick)
                         disp('Moving IIWA to preset positions...');
                         spread_jam(r2, blade2, blade2Vertices, jam, jamVertices, jamInitialPos, jamFinalPos);
-                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick);
-                    
+                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstaclePoints);
                     elseif iiwa_movement_requested
                         disp('Moving only IIWA to preset positions...');
                         spread_jam(r2, blade2, blade2Vertices, jam, jamVertices, jamInitialPos, jamFinalPos);
-                    
                     elseif ~isempty(selected_brick)
                         disp('Moving only UR3 to Brick');
-                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick);
+                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstaclePoints);
                     end
 
                     selected_brick = [];
@@ -113,111 +111,104 @@ classdef move_robot < handle
                 pause(0.1);
             end
         end
+
+        %% Generate point clouds for obstacles
+        function obstaclePoints = generate_obstacle_point_clouds(obstacleCenters, spacing)
+            obstaclePoints = [];
+            for i = 1:size(obstacleCenters, 1)
+                center = obstacleCenters(i, :);
+                [X, Y, Z] = meshgrid(center(1)-0.1:spacing:center(1)+0.1, ...
+                                     center(2)-0.1:spacing:center(2)+0.1, ...
+                                     center(3)-0.1:spacing:center(3)+0.1);
+                points = [X(:), Y(:), Z(:)];
+                obstaclePoints = [obstaclePoints; points];
+            end
+        end
+
+        %% Check for collision using point cloud data
+        function collisionDetected = is_collision_detected_point_cloud(position, obstaclePoints, threshold)
+            distances = sqrt(sum((obstaclePoints - position).^2, 2));
+            collisionDetected = any(distances < threshold);
+        end
     end
 end
 
-%% Function to move UR3 to the selected brick using RMRC
-function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex)
+%% Function to move UR3 to the selected brick using RMRC with collision detection
+function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex, obstaclePoints)
     global estop_activated;
     disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
-    
+
     % Get vertices of current brick
     vertices = get(bricks{brickIndex}, 'Vertices');
-    % Create ghost brick vertices (copy of original vertices)
     ghostVertices = vertices;
-    
-    % Debug: Show initial brick position
-    brickPos = mean(vertices);  % Center point of brick
+
+    % Initial brick position setup
+    brickPos = mean(vertices);
     disp('Initial brick position (xyz):');
     disp(brickPos);
-    
-    % Current position transform
+
+    % Initial end-effector position
     startTr = double(r.model.fkine(r.model.getpos()).T);
-    
-    % Debug: Show initial end effector position
-    endEffectorPos = startTr(1:3, 4)';  % Extract xyz position from transform
-    disp('Initial end effector position (xyz):');
-    disp(endEffectorPos);
-    
-    % Calculate initial offset
+    endEffectorPos = startTr(1:3, 4)';
     initialOffset = brickPos - endEffectorPos;
     disp('Initial offset (brick - end effector):');
     disp(initialOffset);
-    
-    % Transform to brick position
+
+    % Trajectory to the brick position
     currentBrick = brickMatrix(brickIndex, :);
     brickTr = double(transl(currentBrick) * troty(pi));
-    
-    % Move to brick using RMRC
     [qMatrix, ~] = controller.computeTrajectory(startTr, brickTr, 5);
 
-    % First movement - to brick
+    % Move to the brick with collision detection
     for i = 1:size(qMatrix, 1)
         if estop_activated, break; end
         r.model.animate(qMatrix(i, :));
         endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-        
-        if mod(i, 10) == 0  % Debug every 10 steps to avoid console spam
-            endEffectorPos = endEffectorTransform(1:3, 4)';
-            disp('Current end effector position during approach:');
-            disp(endEffectorPos);
+        endEffectorPos = endEffectorTransform(1:3, 4)';
+
+        % Collision detection
+        if move_robot.is_collision_detected_point_cloud(endEffectorPos, obstaclePoints, move_robot.collisionThreshold)
+            disp(['Collision detected at: ', mat2str(endEffectorPos)]);
+            plot3(endEffectorPos(1), endEffectorPos(2), endEffectorPos(3), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
         end
-        
+
         gripper.attachToEndEffector(endEffectorTransform);
         drawnow();
     end
 
     if ~estop_activated
-        % Transform to final position
+        % Final destination setup
         finalBrick = finalBrickMatrix(brickIndex, :);
         finalTr = double(transl(finalBrick) * troty(pi));
-        
-        % Compute trajectory to final position
         [qMatrix, ~] = controller.computeTrajectory(brickTr, finalTr, 5);
-        % Second movement - continuously update brick position
-        
+
+        % Move to final position with collision detection
         for i = 1:size(qMatrix, 1)
             if estop_activated, break; end
             r.model.animate(qMatrix(i, :));
             endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-
-            % Calculate ghost brick position (not displayed)
-            ghostTransformedVertices = [ghostVertices, ones(size(ghostVertices, 1), 1)] * endEffectorTransform';
-            % Get ghost brick position for offset calculation
-            ghostBrickPos = mean(ghostTransformedVertices(:,1:3));
             endEffectorPos = endEffectorTransform(1:3, 4)';
+
+            % Collision detection
+            if move_robot.is_collision_detected_point_cloud(endEffectorPos, obstaclePoints, move_robot.collisionThreshold)
+                disp(['Collision detected at: ', mat2str(endEffectorPos)]);
+                plot3(endEffectorPos(1), endEffectorPos(2), endEffectorPos(3), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
+            end
+
+            % Update brick position with offset
+            ghostTransformedVertices = [ghostVertices, ones(size(ghostVertices, 1), 1)] * endEffectorTransform';
+            ghostBrickPos = mean(ghostTransformedVertices(:,1:3));
             currentOffset = ghostBrickPos - endEffectorPos;
 
-            
-            % Update brick position
             transformedVertices = [vertices, ones(size(vertices, 1), 1)] * endEffectorTransform';
-            % Add offset to all vertices of the brick
             transformedVertices(:,1:3) = transformedVertices(:,1:3) - currentOffset;
             set(bricks{brickIndex}, 'Vertices', transformedVertices(:, 1:3));
 
-            if mod(i, 10) == 0  % Debug every 10 steps
-                % Get current positions
-                endEffectorPos = endEffectorTransform(1:3, 4)';
-                currentBrickPos = mean(get(bricks{brickIndex}, 'Vertices'));
-                currentOffset = currentBrickPos - endEffectorPos;
-
-                %disp('---Debug Position Info---');
-                %disp('End effector position:');
-                %disp(endEffectorPos);
-                %disp('Current brick position:');
-                %disp(currentBrickPos);
-                %disp('Ghost brick position:');
-                %disp(ghostBrickPos);
-                %disp('Current offset (brick - end effector):');
-                %disp(currentOffset);
-            end
-            
             gripper.attachToEndEffector(endEffectorTransform);
             drawnow();
         end
     end
 end
-
 %% IIWA SPREAD
 function spread_jam(r2, blade2, blade2Vertices, jam, jamVertices, jamInitialPos, jamFinalPos)
     global estop_activated;
