@@ -39,6 +39,7 @@ classdef WorkSpaceEnv < handle
 
             %place table
     PlaceObject('SandwichWorkbench.ply',[-0.75,-0.52,0]);
+    PlaceObject('JamTub.ply',[-0.947,-0.647,0.69]);
    
      h_glass = PlaceObject('GlassCase.ply',[-0.75,-0.52,1.7]);        
      alpha_value = 0.1;  % 0 is fully transparent, 1 is fully opaque
@@ -58,7 +59,7 @@ classdef WorkSpaceEnv < handle
             %PlaceObject('fence.ply',[0,1.5,0]); 
             %PlaceObject('fence.ply',[0,-1.5,0]); 
             PlaceObject('kitchen.ply',[-2.5,2.5,0]); 
-
+            
             %place emergency stop button on the wall
             h = PlaceObject('estop.ply',[0.25, 0.6, -0.6]);
             verts = [get(h,'Vertices'), ones(size(get(h,'Vertices'),1),1)] * trotx(pi);
