@@ -38,9 +38,12 @@ classdef move_robot < handle
             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * r2.model.fkine(r2.model.getpos()).T';
             set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
 
-            % Define point cloud-based collision parameters
-            obstaclePoints = move_robot.generate_obstacle_point_clouds([-1.0, -0.5, 0.8; -1.3, -0.6, 0.75], 0.05);
-            collisionThreshold = 0.05;  % Collision threshold distance
+            % Define collision avoidance parameters
+            obstacles = [-1.0, -0.5, 0.8; -1.3, -0.6, 0.75];
+            semiMajorAxis = 0.45;  
+            semiMinorAxis = 0.25;  
+            acceptableZThreshold = 0.4;  
+            detourZOffset = 0.1;  
 
             % Default positions for resetting on Resume
             ur3e_default_pos = r.model.getpos();
@@ -84,7 +87,7 @@ classdef move_robot < handle
                     if iiwa_movement_requested && ~isempty(selected_brick)
                         disp('Moving IIWA to preset positions...');
                         move_iiwa_three_positions(r2, blade2, blade2Vertices);
-                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstaclePoints, collisionThreshold);
+                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstacles, semiMajorAxis, semiMinorAxis, acceptableZThreshold, detourZOffset);
                     
                     elseif iiwa_movement_requested
                         disp('Moving only IIWA to preset positions...');
@@ -92,7 +95,7 @@ classdef move_robot < handle
                     
                     elseif ~isempty(selected_brick)
                         disp('Moving only UR3 to Brick');
-                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstaclePoints, collisionThreshold);
+                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstacles, semiMajorAxis, semiMinorAxis, acceptableZThreshold, detourZOffset);
                     end
 
                     selected_brick = [];
@@ -103,30 +106,11 @@ classdef move_robot < handle
                 pause(0.1);
             end
         end
-
-        %% Generate point clouds for obstacles
-        function obstaclePoints = generate_obstacle_point_clouds(obstacleCenters, spacing)
-            obstaclePoints = [];
-            for i = 1:size(obstacleCenters, 1)
-                center = obstacleCenters(i, :);
-                [X, Y, Z] = meshgrid(center(1)-0.1:spacing:center(1)+0.1, ...
-                                     center(2)-0.1:spacing:center(2)+0.1, ...
-                                     center(3)-0.1:spacing:center(3)+0.1);
-                points = [X(:), Y(:), Z(:)];
-                obstaclePoints = [obstaclePoints; points];
-            end
-        end
-
-        %% Check for collision using point cloud data
-        function collisionDetected = is_collision_detected_point_cloud(position, obstaclePoints, threshold)
-            distances = sqrt(sum((obstaclePoints - position).^2, 2));
-            collisionDetected = any(distances < threshold);
-        end
     end
 end
 
-%% Function to move UR3 to the selected brick using RMRC with point cloud-based collision detection
-function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex, obstaclePoints, collisionThreshold)
+%% Function to move UR3 to the selected brick using RMRC with obstacle avoidance
+function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex, obstacles, semiMajorAxis, semiMinorAxis, acceptableZThreshold, detourZOffset)
     global estop_activated;
     disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
     
@@ -154,30 +138,46 @@ function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, fin
         endEffectorTransform = r.model.fkine(r.model.getpos()).T;
         gripper.attachToEndEffector(endEffectorTransform);
 
-        % Define end-effector position for collision check
-        endEffectorPosition = endEffectorTransform(1:3, 4)';
+        % Define gripper tip position
+        gripperTipPosition = endEffectorTransform(1:3, 4)';
+        
+        % Check for collision with obstacles
+        collisionDetected = false;
+        for j = 1:size(obstacles, 1)
+            obstaclePosition = obstacles(j, :);
+            relativePosition = gripperTipPosition - obstaclePosition;
+            inEllipse = (relativePosition(1)^2 / semiMajorAxis^2) + (relativePosition(2)^2 / semiMinorAxis^2) <= 1;
+            
+            % Check if within Z threshold for a collision
+            if inEllipse && abs(relativePosition(3)) < acceptableZThreshold
+                disp(['Collision detected at gripper tip: ', mat2str(gripperTipPosition)]);
+                collisionDetected = true;
 
-        % Check for collision with point cloud-based detection
-        if move_robot.is_collision_detected_point_cloud(endEffectorPosition, obstaclePoints, collisionThreshold)
-            disp(['Collision detected at end effector: ', mat2str(endEffectorPosition)]);
-            collisionDetected = true;
-
-            % Adaptive detour calculation
-            theta = atan2(endEffectorPosition(2), endEffectorPosition(1));
-            detourPoint = endEffectorPosition + [cos(theta) * detourMultiplier, sin(theta) * detourMultiplier, detourMultiplier];
-            detourTr = transl(detourPoint) * troty(pi);
-            
-            % Recalculate path to detour point
-            [detourQMatrix, ~] = controller.computeTrajectory(endEffectorTransform, detourTr, 3);
-            
-            % Concatenate detour path with remaining original path
-            remainingQMatrix = qMatrix(i+1:end, :);
-            qMatrix = [qMatrix(1:i, :); detourQMatrix; remainingQMatrix];
-            
-            % Increase detour multiplier for repeated collision avoidance
-            detourMultiplier = detourMultiplier * 1.2;
-            i = i + size(detourQMatrix, 1); % Move index to end of detour path
-            continue; % Restart loop with new path
+                % Adaptive detour calculation: increase detour distance for repeated recalculations
+                theta = atan2(relativePosition(2), relativePosition(1));
+                detourPoint = obstaclePosition + [semiMajorAxis * cos(theta) * detourMultiplier * 2, ...
+                                                  semiMinorAxis * sin(theta) * detourMultiplier * 2, ...
+                                                  gripperTipPosition(3) + detourZOffset];
+                detourTr = transl(detourPoint) * troty(pi);
+                
+                % Recalculate path to detour point using RMRC with internal DLS
+                [detourQMatrix, ~] = controller.computeTrajectory(endEffectorTransform, detourTr, 3);
+                
+                % Concatenate detour path with remaining original path
+                remainingQMatrix = qMatrix(i+1:end, :);
+                qMatrix = [qMatrix(1:i, :); detourQMatrix; remainingQMatrix];
+                
+                % Update detour multiplier for adaptive detours
+                detourMultiplier = detourMultiplier * 1.2;  % Increase detour distance if repeated collision occurs
+                
+                i = i + size(detourQMatrix, 1); % Move index to end of detour path
+                break;
+            end
+        end
+        
+        % Stop or continue based on collision
+        if collisionDetected
+            continue; % Restart loop after recalculating path
         end
 
         % Increment if no collision detected
