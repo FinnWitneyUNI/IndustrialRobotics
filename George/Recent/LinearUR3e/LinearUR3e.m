@@ -16,7 +16,6 @@ classdef LinearUR3e < RobotBaseClass
             
             self.PlotAndColourRobot();   
             
-            self.model.teach();
            
         end
 
