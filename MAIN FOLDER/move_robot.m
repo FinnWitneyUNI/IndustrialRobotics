@@ -19,8 +19,17 @@ classdef move_robot < handle
                 transformedVertices = [vertices, ones(size(vertices, 1), 1)] * transl(brickMatrix(brickIndex, :))';
                 set(bricks{brickIndex}, 'Vertices', transformedVertices(:, 1:3));
             end
+            
+            %Load Jam
+            jamInitialPos = [-0.947,-0.647,0.8];  % Initial position for jam
+            jamFinalPos = [-1.35, -0.55, 0.88];    % Final position for jam
+            jam = PlaceObject('Jam.ply');         % Make sure you have a Jam.ply file
+            jamVertices = get(jam, 'Vertices');
+            transformedJamVertices = [jamVertices, ones(size(jamVertices, 1), 1)] * transl(jamInitialPos)';
+            set(jam, 'Vertices', transformedJamVertices(:, 1:3));
 
-            % Set up UR3e and IIWA models and attach tools
+
+            %% Set up UR3e and IIWA models and attach tools
             defaultBaseTr = [1, 0, 0, 0; 0, 1, 0, 0; 0, 0, 1, 0.74; 0, 0, 0, 1];
             r = LinearUR3e(defaultBaseTr);
             r.model;
@@ -33,6 +42,11 @@ classdef move_robot < handle
             % Set up the IIWA7 model and attach blade
             r2 = IIWA7(defaultBaseTr * transl(-1.35, -1.2, 0));
             r2.model;
+            
+            % Set initial bent configuration
+            initial_q = [pi/2, pi/8, 0, -pi/2, 0, pi/3, 0];  % Adjust these angles as needed
+            r2.model.animate(initial_q);
+            
             blade2 = PlaceObject('blade2.ply');
             blade2Vertices = get(blade2, 'Vertices');
             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * r2.model.fkine(r2.model.getpos()).T';
@@ -79,12 +93,12 @@ classdef move_robot < handle
                 if movement_requested && ~estop_activated
                     if iiwa_movement_requested && ~isempty(selected_brick)
                         disp('Moving IIWA to preset positions...');
-                        move_iiwa_three_positions(r2, blade2, blade2Vertices);
+                        spread_jam(r2, blade2, blade2Vertices, jam, jamVertices, jamInitialPos, jamFinalPos);
                         move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick);
                     
                     elseif iiwa_movement_requested
                         disp('Moving only IIWA to preset positions...');
-                        move_iiwa_three_positions(r2, blade2, blade2Vertices);
+                        spread_jam(r2, blade2, blade2Vertices, jam, jamVertices, jamInitialPos, jamFinalPos);
                     
                     elseif ~isempty(selected_brick)
                         disp('Moving only UR3 to Brick');
@@ -162,7 +176,6 @@ function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, fin
         [qMatrix, ~] = controller.computeTrajectory(brickTr, finalTr, 5);
         % Second movement - continuously update brick position
         
-        currentOffset = [ 0 0 0];
         for i = 1:size(qMatrix, 1)
             if estop_activated, break; end
             r.model.animate(qMatrix(i, :));
@@ -201,6 +214,126 @@ function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, fin
             
             gripper.attachToEndEffector(endEffectorTransform);
             drawnow();
+        end
+    end
+end
+
+%% IIWA SPREAD
+function spread_jam(r2, blade2, blade2Vertices, jam, jamVertices, jamInitialPos, jamFinalPos)
+    global estop_activated;
+    disp('Moving IIWA7 to spread jam');
+    
+    % Get current vertices
+    vertices = get(jam, 'Vertices');
+    % Create ghost vertices for offset calculation
+    ghostVertices = vertices;
+    
+    % Current position transform
+    startTr = double(r2.model.fkine(r2.model.getpos()).T);
+    
+    % Transform to initial jam position with rotation
+    jamInitialBlade = jamInitialPos + [0 0 0.1]
+    jamTr = double(transl(jamInitialBlade) * trotx(pi));
+    
+    % Create RMRC controller for IIWA7
+    controller = RMRCController(r2.model, 0.05);
+    
+    % Move to jam using RMRC
+    [qMatrix, ~] = controller.computeTrajectory(startTr, jamTr, 5);
+    % First movement - to jam
+    for i = 1:size(qMatrix, 1)
+        if estop_activated, break; end
+        r2.model.animate(qMatrix(i, :));
+        endEffectorTransform = r2.model.fkine(r2.model.getpos()).T;
+        
+        % Update blade position
+        transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * endEffectorTransform';
+        set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
+        drawnow();
+    end
+            % SECOND MOVEMENT ABOVE JAM 
+            % Current position transform
+            startTr = double(r2.model.fkine(r2.model.getpos()).T);
+
+            % Transform to initial jam position slightly above
+            jamRaised = jamInitialPos + [0 0 0.2];
+            jamTr = double(transl(jamRaised) * trotx(pi));
+
+            % Move to jam using RMRC
+            [qMatrix, ~] = controller.computeTrajectory(startTr, jamTr, 5);
+            
+            for i = 1:size(qMatrix, 1)
+                if estop_activated, break; end
+                r2.model.animate(qMatrix(i, :));
+                endEffectorTransform = r2.model.fkine(r2.model.getpos()).T;
+                
+                ghostTransformedVertices = [ghostVertices, ones(size(ghostVertices, 1), 1)] * endEffectorTransform';
+                ghostJamPos = mean(ghostTransformedVertices(:,1:3));
+                endEffectorPos = endEffectorTransform(1:3, 4)';
+                currentOffset = ghostJamPos - endEffectorPos;
+
+                % Update jam position
+                transformedVertices = [vertices, ones(size(vertices, 1), 1)] * endEffectorTransform';
+                transformedVertices(:,1:3) = transformedVertices(:,1:3) - currentOffset - [0 0 0.1];
+                set(jam, 'Vertices', transformedVertices(:, 1:3));
+                
+                % Update blade position
+                transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * endEffectorTransform';
+                set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
+                drawnow();
+            end
+    
+    
+    if ~estop_activated
+        % Transform to final position
+        finalTr = double(transl(jamFinalPos) * trotx(pi));
+        
+        % Compute trajectory to final position using RMRC
+        [qMatrix, ~] = controller.computeTrajectory(jamTr, finalTr, 5);
+        
+        % THIRD MOVEMENT - move jam to final position
+        for i = 1:size(qMatrix, 1)
+            if estop_activated, break; end
+            r2.model.animate(qMatrix(i, :));
+            endEffectorTransform = r2.model.fkine(r2.model.getpos()).T;
+            % Calculate ghost jam position
+            ghostTransformedVertices = [ghostVertices, ones(size(ghostVertices, 1), 1)] * endEffectorTransform';
+            ghostJamPos = mean(ghostTransformedVertices(:,1:3));
+            endEffectorPos = endEffectorTransform(1:3, 4)';
+            currentOffset = ghostJamPos - endEffectorPos;
+            
+            % Update jam position
+            transformedVertices = [vertices, ones(size(vertices, 1), 1)] * endEffectorTransform';
+            transformedVertices(:,1:3) = transformedVertices(:,1:3) - currentOffset - [0 0 0.1];
+            set(jam, 'Vertices', transformedVertices(:, 1:3));
+            
+            % Update blade position
+            transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * endEffectorTransform';
+            set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
+            drawnow();
+        end
+        
+        
+        % FOURTH MOVEMENT retract from bread
+        if ~estop_activated
+            % Calculate retraction position (10cm up from final position)
+            retractPos = jamFinalPos + [0 0 0.4];
+            retractTr = double(transl(retractPos) * trotx(pi));
+            
+            % Compute trajectory for retraction
+            [qMatrix, ~] = controller.computeTrajectory(finalTr, retractTr, 5);
+            
+            % Final movement - retract from jam
+            for i = 1:size(qMatrix, 1)
+                if estop_activated, break; end
+                r2.model.animate(qMatrix(i, :));
+                endEffectorTransform = r2.model.fkine(r2.model.getpos()).T;
+                
+                % Update only blade position, leaving jam in place
+                transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * endEffectorTransform';
+                set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
+                drawnow();
+            end
         end
     end
 end
