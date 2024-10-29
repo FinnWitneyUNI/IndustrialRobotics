@@ -14,8 +14,7 @@ classdef LinearUR3e < RobotBaseClass
             end
             self.model.base = self.model.base.T * baseTr * trotx(pi/2) * troty(pi/2);
             
-            self.PlotAndColourRobot();   
-            
+            self.PlotAndColourRobot();    
            
         end
 

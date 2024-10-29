@@ -106,8 +106,28 @@ function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, fin
     global estop_activated;
     disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
     
+    % Get vertices of current brick
+    vertices = get(bricks{brickIndex}, 'Vertices');
+    % Create ghost brick vertices (copy of original vertices)
+    ghostVertices = vertices;
+    
+    % Debug: Show initial brick position
+    brickPos = mean(vertices);  % Center point of brick
+    disp('Initial brick position (xyz):');
+    disp(brickPos);
+    
     % Current position transform
     startTr = double(r.model.fkine(r.model.getpos()).T);
+    
+    % Debug: Show initial end effector position
+    endEffectorPos = startTr(1:3, 4)';  % Extract xyz position from transform
+    disp('Initial end effector position (xyz):');
+    disp(endEffectorPos);
+    
+    % Calculate initial offset
+    initialOffset = brickPos - endEffectorPos;
+    disp('Initial offset (brick - end effector):');
+    disp(initialOffset);
     
     % Transform to brick position
     currentBrick = brickMatrix(brickIndex, :);
@@ -115,49 +135,72 @@ function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, fin
     
     % Move to brick using RMRC
     [qMatrix, ~] = controller.computeTrajectory(startTr, brickTr, 5);
-    originalBrickVertices = get(bricks{brickIndex}, 'Vertices');
-    brickToEndEffectorOffset = eye(4);
 
-    % Animate movement to brick
+    % First movement - to brick
     for i = 1:size(qMatrix, 1)
         if estop_activated, break; end
         r.model.animate(qMatrix(i, :));
         endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-        gripper.attachToEndEffector(endEffectorTransform);
-        if i == size(qMatrix, 1)
-            brickTransform = transl(currentBrick);
-            brickToEndEffectorOffset = inv(endEffectorTransform) * brickTransform;
+        
+        if mod(i, 10) == 0  % Debug every 10 steps to avoid console spam
+            endEffectorPos = endEffectorTransform(1:3, 4)';
+            disp('Current end effector position during approach:');
+            disp(endEffectorPos);
         end
+        
+        gripper.attachToEndEffector(endEffectorTransform);
         drawnow();
     end
 
-    % Move to final position if not stopped
     if ~estop_activated
         % Transform to final position
         finalBrick = finalBrickMatrix(brickIndex, :);
         finalTr = double(transl(finalBrick) * troty(pi));
         
-        % Compute and execute RMRC trajectory to final position
+        % Compute trajectory to final position
         [qMatrix, ~] = controller.computeTrajectory(brickTr, finalTr, 5);
+        % Second movement - continuously update brick position
         
+        currentOffset = [ 0 0 0];
         for i = 1:size(qMatrix, 1)
             if estop_activated, break; end
             r.model.animate(qMatrix(i, :));
             endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-            brickTransform = endEffectorTransform * brickToEndEffectorOffset;
-            transformedBrickVertices = [originalBrickVertices, ones(size(originalBrickVertices, 1), 1)] * brickTransform';
-            set(bricks{brickIndex}, 'Vertices', transformedBrickVertices(:, 1:3));
+
+            % Calculate ghost brick position (not displayed)
+            ghostTransformedVertices = [ghostVertices, ones(size(ghostVertices, 1), 1)] * endEffectorTransform';
+            % Get ghost brick position for offset calculation
+            ghostBrickPos = mean(ghostTransformedVertices(:,1:3));
+            endEffectorPos = endEffectorTransform(1:3, 4)';
+            currentOffset = ghostBrickPos - endEffectorPos;
+
+            
+            % Update brick position
+            transformedVertices = [vertices, ones(size(vertices, 1), 1)] * endEffectorTransform';
+            % Add offset to all vertices of the brick
+            transformedVertices(:,1:3) = transformedVertices(:,1:3) - currentOffset;
+            set(bricks{brickIndex}, 'Vertices', transformedVertices(:, 1:3));
+
+            if mod(i, 10) == 0  % Debug every 10 steps
+                % Get current positions
+                endEffectorPos = endEffectorTransform(1:3, 4)';
+                currentBrickPos = mean(get(bricks{brickIndex}, 'Vertices'));
+                currentOffset = currentBrickPos - endEffectorPos;
+
+                disp('---Debug Position Info---');
+                disp('End effector position:');
+                disp(endEffectorPos);
+                disp('Current brick position:');
+                disp(currentBrickPos);
+                disp('Ghost brick position:');
+                disp(ghostBrickPos);
+                disp('Current offset (brick - end effector):');
+                disp(currentOffset);
+            end
+            
             gripper.attachToEndEffector(endEffectorTransform);
             drawnow();
         end
-    end
-
-    % Force brick to final position if no E-Stop
-    if ~estop_activated
-        disp('Forcing brick to final position.');
-        currentBrickVertices = get(bricks{brickIndex}, 'Vertices');
-        translation = finalBrick - mean(currentBrickVertices);
-        set(bricks{brickIndex}, 'Vertices', currentBrickVertices + translation);
     end
 end
 
