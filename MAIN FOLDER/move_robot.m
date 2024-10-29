@@ -298,3 +298,38 @@ function move_iiwa_with_ps4(r2, blade2, blade2Vertices)
     end
     disp('Exiting PS4 control mode.');
 end
+
+
+% function activate_estop()
+%     % Global variable to track the E-Stop state
+%     global estop_activated;
+%     estop_activated = true;  % Activate E-Stop
+% 
+%     % Display message
+%     disp('E-Stop activated: All robot movements paused.');
+% 
+%     % Stop all robot movements
+%     stop_robot_movement();  % This would be a custom function to halt robot actions
+% end
+% 
+% function resume_simulation(r, r2, ur3_default_pos, iiwa_default_pos)
+%     % Global variable to track the resume request state
+%     global estop_activated resume_requested;
+% 
+%     % Check if E-Stop is currently active
+%     if estop_activated
+%         % Reset E-Stop and activate resume
+%         resume_requested = true;
+%         estop_activated = false;
+% 
+%         % Display message
+%         disp('Resuming simulation. Robots reset to default positions.');
+% 
+%         % Reset robots to default positions
+%         r.model.animate(ur3_default_pos);  % Animate UR3 to default position
+%         r2.model.animate(iiwa_default_pos);  % Animate IIWA to default position
+% 
+%         % Clear the resume request
+%         resume_requested = false;
+%     end
+% end
