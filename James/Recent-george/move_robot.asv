@@ -38,13 +38,20 @@ classdef move_robot < handle
             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * r2.model.fkine(r2.model.getpos()).T';
             set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
 
+            % Define collision avoidance parameters
+            obstacles = [-1.0, -0.5, 0.8; -1.3, -0.6, 0.75];
+            semiMajorAxis = 0.45;  
+            semiMinorAxis = 0.25;  
+            acceptableZThreshold = 0.4;  
+            detourZOffset = 0.1;  
+
             % Default positions for resetting on Resume
             ur3e_default_pos = r.model.getpos();
             iiwa_default_pos = r2.model.getpos();
 
             % Initialize GUI with persistent control
             global selected_brick iiwa_movement_requested movement_requested ps4_control_enabled estop_activated resume_requested;
-            select_brick_gui();  % Keep GUI open
+            select_brick_gui();
 
             % Main control loop to allow repeated GUI usage
             while true
@@ -75,20 +82,20 @@ classdef move_robot < handle
                     ps4_control_enabled = false;
                 end
 
-                % Check and execute movements based on selections
+                % Execute movements based on GUI selections
                 if movement_requested && ~estop_activated
                     if iiwa_movement_requested && ~isempty(selected_brick)
                         disp('Moving IIWA to preset positions...');
-                        move_iiwa_three_positions(r2, blade2, blade2Vertices);
-                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick);
+                        move_robot.move_iiwa_three_positions(r2, blade2, blade2Vertices);
+                        move_robot.move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstacles, semiMajorAxis, semiMinorAxis, acceptableZThreshold, detourZOffset);
                     
                     elseif iiwa_movement_requested
                         disp('Moving only IIWA to preset positions...');
-                        move_iiwa_three_positions(r2, blade2, blade2Vertices);
+                        move_robot.move_iiwa_three_positions(r2, blade2, blade2Vertices);
                     
                     elseif ~isempty(selected_brick)
                         disp('Moving only UR3 to Brick');
-                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick);
+                        move_robot.move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstacles, semiMajorAxis, semiMinorAxis, acceptableZThreshold, detourZOffset);
                     end
 
                     selected_brick = [];
@@ -99,145 +106,138 @@ classdef move_robot < handle
                 pause(0.1);
             end
         end
-    end
-end
-%% Function to move UR3 to the selected brick using RMRC
-function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex)
-    global estop_activated;
-    disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
-    
-    % Current position transform
-    startTr = double(r.model.fkine(r.model.getpos()).T);
-    
-    % Transform to brick position
-    currentBrick = brickMatrix(brickIndex, :);
-    brickTr = double(transl(currentBrick) * troty(pi));
-    
-    % Move to brick using RMRC
-    [qMatrix, ~] = controller.computeTrajectory(startTr, brickTr, 5);
-    originalBrickVertices = get(bricks{brickIndex}, 'Vertices');
-    brickToEndEffectorOffset = eye(4);
 
-    % Animate movement to brick
-    for i = 1:size(qMatrix, 1)
-        if estop_activated, break; end
-        r.model.animate(qMatrix(i, :));
-        endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-        gripper.attachToEndEffector(endEffectorTransform);
-        if i == size(qMatrix, 1)
-            brickTransform = transl(currentBrick);
-            brickToEndEffectorOffset = inv(endEffectorTransform) * brickTransform;
+        %% Function to move UR3 to the selected brick using RMRC with obstacle avoidance
+        function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex, obstacles, semiMajorAxis, semiMinorAxis, acceptableZThreshold, detourZOffset)
+            global estop_activated;
+            disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
+            
+            % Current position transform
+            startTr = double(r.model.fkine(r.model.getpos()).T);
+            
+            % Transform to brick position
+            currentBrick = brickMatrix(brickIndex, :);
+            brickTr = double(transl(currentBrick) * troty(pi));
+            
+            % Move to brick using RMRC with internal DLS for smoothness
+            [qMatrix, ~] = controller.computeTrajectory(startTr, brickTr, 5);
+            originalBrickVertices = get(bricks{brickIndex}, 'Vertices');
+            brickToEndEffectorOffset = eye(4);
+
+            i = 1; % Start index for animation loop
+
+            % Main movement loop with RMRC path recalculation upon collision
+            while i <= size(qMatrix, 1) && ~estop_activated
+                % Plot the robot configuration
+                r.model.plot(qMatrix(i, :));
+                endEffectorTransform = r.model.fkine(r.model.getpos()).T;
+                gripper.attachToEndEffector(endEffectorTransform);
+
+                % Define gripper tip position
+                gripperTipPosition = endEffectorTransform(1:3, 4)';
+                
+                % Check for collision with obstacles
+                collisionDetected = false;
+                for j = 1:size(obstacles, 1)
+                    obstaclePosition = obstacles(j, :);
+                    relativePosition = gripperTipPosition - obstaclePosition;
+                    inEllipse = (relativePosition(1)^2 / semiMajorAxis^2) + (relativePosition(2)^2 / semiMinorAxis^2) <= 1;
+                    
+                    % Check if within Z threshold for a collision
+                    if inEllipse && abs(relativePosition(3)) < acceptableZThreshold
+                        disp(['Collision detected at gripper tip: ', mat2str(gripperTipPosition)]);
+                        collisionDetected = true;
+
+                        % Adaptive detour calculation: increase detour distance for repeated recalculations
+                        theta = atan2(relativePosition(2), relativePosition(1));
+                        detourPoint = obstaclePosition + [semiMajorAxis * cos(theta) * 2, ...
+                                                          semiMinorAxis * sin(theta) * 2, ...
+                                                          gripperTipPosition(3) + detourZOffset];
+                        detourTr = transl(detourPoint) * troty(pi);
+                        
+                        % Recalculate path to detour point using RMRC with internal DLS
+                        [detourQMatrix, ~] = controller.computeTrajectory(endEffectorTransform, detourTr, 3);
+                        
+                        % Concatenate detour path with remaining original path
+                        remainingQMatrix = qMatrix(i+1:end, :);
+                        qMatrix = [qMatrix(1:i, :); detourQMatrix; remainingQMatrix];
+                        
+                        i = i + size(detourQMatrix, 1); % Move index to end of detour path
+                        break;
+                    end
+                end
+                
+                % Stop or continue based on collision
+                if collisionDetected
+                    continue; % Restart loop after recalculating path
+                end
+
+                % Increment if no collision detected
+                i = i + 1;
+                drawnow();
+            end
+
+            % Final move to place the brick at the final destination
+            if ~estop_activated
+                finalBrick = finalBrickMatrix(brickIndex, :);
+                finalTr = double(transl(finalBrick) * troty(pi));
+                
+                % Compute RMRC trajectory to final destination with DLS for smoothness
+                [qMatrix, ~] = controller.computeTrajectory(endEffectorTransform, finalTr, 5);
+                
+                % Plot each configuration to the final position
+                for i = 1:size(qMatrix, 1)
+                    if estop_activated, break; end
+                    r.model.plot(qMatrix(i, :));
+                    endEffectorTransform = r.model.fkine(r.model.getpos()).T;
+                    brickTransform = endEffectorTransform * brickToEndEffectorOffset;
+                    transformedBrickVertices = [originalBrickVertices, ones(size(originalBrickVertices, 1), 1)] * brickTransform';
+                    set(bricks{brickIndex}, 'Vertices', transformedBrickVertices(:, 1:3));
+                    gripper.attachToEndEffector(endEffectorTransform);
+                    drawnow();
+                end
+            end
+
+            % Force the brick to final position if not stopped
+            if ~estop_activated
+                disp('Forcing brick to final position.');
+                currentBrickVertices = get(bricks{brickIndex}, 'Vertices');
+                translation = finalBrick - mean(currentBrickVertices);
+                set(bricks{brickIndex}, 'Vertices', currentBrickVertices + translation);
+            end
         end
-        drawnow();
-    end
 
-    % Move to final position if not stopped
-    if ~estop_activated
-        % Transform to final position
-        finalBrick = finalBrickMatrix(brickIndex, :);
-        finalTr = double(transl(finalBrick) * troty(pi));
-        
-        % Compute and execute RMRC trajectory to final position
-        [qMatrix, ~] = controller.computeTrajectory(brickTr, finalTr, 5);
-        
-        for i = 1:size(qMatrix, 1)
-            if estop_activated, break; end
-            r.model.animate(qMatrix(i, :));
-            endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-            brickTransform = endEffectorTransform * brickToEndEffectorOffset;
-            transformedBrickVertices = [originalBrickVertices, ones(size(originalBrickVertices, 1), 1)] * brickTransform';
-            set(bricks{brickIndex}, 'Vertices', transformedBrickVertices(:, 1:3));
-            gripper.attachToEndEffector(endEffectorTransform);
-            drawnow();
+        %% Function to move IIWA through three positions
+        function move_iiwa_three_positions(r2, blade2, blade2Vertices)
+            global estop_activated;
+            % Define three target positions for the IIWA
+            iiwaPositions = [
+                -1.2, -0.8, 0.76;  % Position 1
+                -1.2, -0.6, 1.0;   % Position 2
+                -1.2, -0.4, 1.2    % Position 3
+            ];
+            orientation = trotx(pi);  % 180-degree rotation around X-axis for downward orientation
+
+            % Loop through each position
+            for j = 1:size(iiwaPositions, 1)
+                if estop_activated, break; end  % Check E-Stop at each position
+                % Combine position with downward orientation
+                targetTransform = transl(iiwaPositions(j, :)) * orientation;
+                
+                % Calculate target joint angles for each position with orientation
+                targetQ = r2.model.ikcon(targetTransform);
+                currentQPath = jtraj(r2.model.getpos(), targetQ, 100);
+
+                % Animate movement to the target position
+                for i = 1:size(currentQPath, 1)
+                    if estop_activated, break; end  % Check E-Stop within path
+                    r2.model.animate(currentQPath(i, :));
+                    endEffectorTransform = r2.model.fkine(r2.model.getpos()).T;
+                    transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * endEffectorTransform';
+                    set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
+                    drawnow();
+                end
+            end
         end
     end
-
-    % Force brick to final position if no E-Stop
-    if ~estop_activated
-        disp('Forcing brick to final position.');
-        currentBrickVertices = get(bricks{brickIndex}, 'Vertices');
-        translation = finalBrick - mean(currentBrickVertices);
-        set(bricks{brickIndex}, 'Vertices', currentBrickVertices + translation);
-    end
-end
-
-
-
-
-
-%% Function to move IIWA through three positions
-function move_iiwa_three_positions(r2, blade2, blade2Vertices)
-    global estop_activated;
-    % Define three target positions for the IIWA
-    iiwaPositions = [
-        -1.2, -0.8, 0.76;  % Position 1
-        -1.2, -0.6, 1.0;   % Position 2
-        -1.2, -0.4, 1.2    % Position 3
-    ];
-    orientation = trotx(pi);  % 180-degree rotation around X-axis for downward orientation
-
-    % Loop through each position
-    for j = 1:size(iiwaPositions, 1)
-        if estop_activated, break; end  % Check E-Stop at each position
-        % Combine position with downward orientation
-        targetTransform = transl(iiwaPositions(j, :)) * orientation;
-        
-        % Calculate target joint angles for each position with orientation
-        targetQ = r2.model.ikcon(targetTransform);
-        currentQPath = jtraj(r2.model.getpos(), targetQ, 100);
-
-        % Animate movement to the target position
-        for i = 1:size(currentQPath, 1)
-            if estop_activated, break; end  % Check E-Stop within path
-            r2.model.animate(currentQPath(i, :));
-            endEffectorTransform = r2.model.fkine(r2.model.getpos()).T;
-            transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * endEffectorTransform';
-            set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
-            drawnow();
-        end
-    end
-end
-
-% PS4 control function for the IIWA end effector
-function move_iiwa_with_ps4(r2, blade2, blade2Vertices)
-    global ps4_control_enabled estop_activated;  % Ensure these variables are accessible
-    joy = vrjoystick(1); % Initialize joystick; may need to change ID if multiple joysticks
-    duration = 300;  % Duration of control session
-    dt = 0.15;       % Time step for updates
-    Kv = 0.3;        % Linear velocity gain
-    Kw = 0.8;        % Angular velocity gain
-    deadZone = 0.1;  % Dead zone threshold to prevent unintended drift
-
-    % Start PS4 control loop
-    tic;
-    while toc < duration && ps4_control_enabled && ~estop_activated
-        % Read joystick input
-        [axes, buttons, ~] = read(joy);
-        
-        % Apply dead zone filtering to each axis
-        vx = Kv * (abs(axes(1)) > deadZone) * axes(1);
-        vy = Kv * (abs(axes(2)) > deadZone) * axes(2);
-        vz = Kv * ((buttons(5) - buttons(7)) ~= 0) * (buttons(5) - buttons(7));
-        wx = Kw * (abs(axes(4)) > deadZone) * axes(4);
-        wy = Kw * (abs(axes(3)) > deadZone) * axes(3);
-        wz = Kw * ((buttons(6) - buttons(8)) ~= 0) * (buttons(6) - buttons(8));
-        dx = [vx; vy; vz; wx; wy; wz];  % Combined velocity vector
-
-        % Calculate joint velocity using Damped Least-Squares with pseudoinverse
-        J = r2.model.jacob0(r2.model.getpos());
-        dq = pinv(J) * dx;
-
-        % Update joint angles based on joint velocities
-        q = r2.model.getpos() + dq' * dt;
-        r2.model.animate(q);
-
-        % Update end effector (blade) position
-        endEffectorTransform = r2.model.fkine(q).T;
-        transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * endEffectorTransform';
-        set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
-
-        % Wait for next time step
-        pause(dt);
-    end
-    disp('Exiting PS4 control mode.');
 end

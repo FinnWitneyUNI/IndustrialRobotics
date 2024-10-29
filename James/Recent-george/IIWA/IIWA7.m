@@ -53,7 +53,7 @@ function CreateModel(self)
     
     % Define model name as Kuka IIWA7
     self.model = SerialLink(link, 'name', 'Kuka IIWA7');
-    self.model.plotopt = {'noaxes', 'noshadow', 'noarrow', 'noshading', 'nowrist', 'nojaxes'};
+    self.model.plotopt = {'noshadow', 'noarrow', 'noshading', 'nowrist', 'nojaxes'};
 
 end
      

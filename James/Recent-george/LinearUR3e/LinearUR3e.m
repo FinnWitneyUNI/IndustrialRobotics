@@ -44,7 +44,7 @@ classdef LinearUR3e < RobotBaseClass
             
             self.model = SerialLink(link,'name',self.name);
 
-            self.model.plotopt = {'noaxes', 'noshadow', 'noarrow', 'noshading', 'nowrist', 'nojaxes'};
+            self.model.plotopt = {'noshadow', 'noarrow', 'noshading', 'nowrist', 'nojaxes'};
         end
      
     end
