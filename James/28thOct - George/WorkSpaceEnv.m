@@ -38,11 +38,11 @@ classdef WorkSpaceEnv < handle
                 ,'FaceColor','texturemap');
 
             %place table
-    % PlaceObject('SandwichWorkbench.ply',[-0.75,-0.52,0]);
+     PlaceObject('SandwichWorkbench.ply',[-0.75,-0.52,0]);
    
-     % h_glass = PlaceObject('GlassCase.ply',[-0.75,-0.52,1.7]);        
-     % alpha_value = 0.1;  % 0 is fully transparent, 1 is fully opaque
-     % set(h_glass, 'FaceAlpha', alpha_value);  % Set transparency to 50%
+      h_glass = PlaceObject('GlassCase.ply',[-0.75,-0.52,1.7]);        
+      alpha_value = 0.1;  % 0 is fully transparent, 1 is fully opaque
+      set(h_glass, 'FaceAlpha', alpha_value);  % Set transparency to 50%
            % PlaceObject('plate.ply',[0.3,0,0.72]);
  
             % Place human object at a very far-off position for initial loading
