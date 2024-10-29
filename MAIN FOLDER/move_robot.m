@@ -44,7 +44,7 @@ classdef move_robot < handle
 
             % Initialize GUI with persistent control
             global selected_brick iiwa_movement_requested movement_requested ps4_control_enabled estop_activated resume_requested;
-            select_brick_gui();  % Keep GUI open
+            select_brick_gui(r2, r);  % Keep GUI open
 
             % Main control loop to allow repeated GUI usage
             while true

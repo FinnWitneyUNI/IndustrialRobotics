@@ -38,9 +38,13 @@ classdef move_robot < handle
             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * r2.model.fkine(r2.model.getpos()).T';
             set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
 
+            % Default positions for resetting on Resume
+            ur3e_default_pos = r.model.getpos();
+            iiwa_default_pos = r2.model.getpos();
+
             % Initialize GUI with persistent control
             global selected_brick iiwa_movement_requested movement_requested ps4_control_enabled estop_activated resume_requested;
-            select_brick_gui();  % Keep GUI open
+            select_brick_gui(r2, r);  % Keep GUI open
 
             % Main control loop to allow repeated GUI usage
             while true
@@ -51,14 +55,15 @@ classdef move_robot < handle
                     iiwa_movement_requested = false;
                     ps4_control_enabled = false;
 
-                    % Pause until resume_requested is set by either GUI or PS4
                     while ~resume_requested
                         drawnow();
                         pause(0.1);
                     end
 
-                    % Resume control: Clear E-Stop, reset flags
-                    disp('Resuming simulation.');
+                    % Reset robots to default positions on Resume
+                    r.model.animate(ur3e_default_pos);
+                    r2.model.animate(iiwa_default_pos);
+                    disp('Resuming simulation. Robots reset to default positions.');
                     estop_activated = false;
                     resume_requested = false;
                 end
@@ -67,48 +72,63 @@ classdef move_robot < handle
                 if ps4_control_enabled && ~estop_activated
                     disp('Starting PS4 control of IIWA end effector...');
                     move_iiwa_with_ps4(r2, blade2, blade2Vertices);
-                    ps4_control_enabled = false;  % Reset flag after control ends
+                    ps4_control_enabled = false;
                 end
 
-                % Check and execute movements based on selections and Go button press
+                % Check and execute movements based on selections
                 if movement_requested && ~estop_activated
-                    % If both IIWA and UR3 are selected, move IIWA first, then UR3
                     if iiwa_movement_requested && ~isempty(selected_brick)
                         disp('Moving IIWA to preset positions...');
                         move_iiwa_three_positions(r2, blade2, blade2Vertices);
-
-                        % After IIWA completes, move UR3 to brick
                         move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick);
                     
-                    % If only IIWA is selected
                     elseif iiwa_movement_requested
                         disp('Moving only IIWA to preset positions...');
                         move_iiwa_three_positions(r2, blade2, blade2Vertices);
                     
-                    % If only UR3 is selected
                     elseif ~isempty(selected_brick)
                         disp('Moving only UR3 to Brick');
                         move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick);
                     end
 
-                    % Reset selections and movement request for the next cycle
                     selected_brick = [];
                     iiwa_movement_requested = false;
                     movement_requested = false;
                 end
 
-                pause(0.1); % Small pause to avoid excessive CPU use
+                pause(0.1);
             end
         end
     end
 end
+
 %% Function to move UR3 to the selected brick using RMRC
 function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex)
     global estop_activated;
     disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
     
+    % Get vertices of current brick
+    vertices = get(bricks{brickIndex}, 'Vertices');
+    % Create ghost brick vertices (copy of original vertices)
+    ghostVertices = vertices;
+    
+    % Debug: Show initial brick position
+    brickPos = mean(vertices);  % Center point of brick
+    disp('Initial brick position (xyz):');
+    disp(brickPos);
+    
     % Current position transform
     startTr = double(r.model.fkine(r.model.getpos()).T);
+    
+    % Debug: Show initial end effector position
+    endEffectorPos = startTr(1:3, 4)';  % Extract xyz position from transform
+    disp('Initial end effector position (xyz):');
+    disp(endEffectorPos);
+    
+    % Calculate initial offset
+    initialOffset = brickPos - endEffectorPos;
+    disp('Initial offset (brick - end effector):');
+    disp(initialOffset);
     
     % Transform to brick position
     currentBrick = brickMatrix(brickIndex, :);
@@ -116,55 +136,74 @@ function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, fin
     
     % Move to brick using RMRC
     [qMatrix, ~] = controller.computeTrajectory(startTr, brickTr, 5);
-    originalBrickVertices = get(bricks{brickIndex}, 'Vertices');
-    brickToEndEffectorOffset = eye(4);
 
-    % Animate movement to brick
+    % First movement - to brick
     for i = 1:size(qMatrix, 1)
         if estop_activated, break; end
         r.model.animate(qMatrix(i, :));
         endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-        gripper.attachToEndEffector(endEffectorTransform);
-        if i == size(qMatrix, 1)
-            brickTransform = transl(currentBrick);
-            brickToEndEffectorOffset = inv(endEffectorTransform) * brickTransform;
+        
+        if mod(i, 10) == 0  % Debug every 10 steps to avoid console spam
+            endEffectorPos = endEffectorTransform(1:3, 4)';
+            disp('Current end effector position during approach:');
+            disp(endEffectorPos);
         end
+        
+        gripper.attachToEndEffector(endEffectorTransform);
         drawnow();
     end
 
-    % Move to final position if not stopped
     if ~estop_activated
         % Transform to final position
         finalBrick = finalBrickMatrix(brickIndex, :);
         finalTr = double(transl(finalBrick) * troty(pi));
         
-        % Compute and execute RMRC trajectory to final position
+        % Compute trajectory to final position
         [qMatrix, ~] = controller.computeTrajectory(brickTr, finalTr, 5);
+        % Second movement - continuously update brick position
         
+        currentOffset = [ 0 0 0];
         for i = 1:size(qMatrix, 1)
             if estop_activated, break; end
             r.model.animate(qMatrix(i, :));
             endEffectorTransform = r.model.fkine(r.model.getpos()).T;
-            brickTransform = endEffectorTransform * brickToEndEffectorOffset;
-            transformedBrickVertices = [originalBrickVertices, ones(size(originalBrickVertices, 1), 1)] * brickTransform';
-            set(bricks{brickIndex}, 'Vertices', transformedBrickVertices(:, 1:3));
+
+            % Calculate ghost brick position (not displayed)
+            ghostTransformedVertices = [ghostVertices, ones(size(ghostVertices, 1), 1)] * endEffectorTransform';
+            % Get ghost brick position for offset calculation
+            ghostBrickPos = mean(ghostTransformedVertices(:,1:3));
+            endEffectorPos = endEffectorTransform(1:3, 4)';
+            currentOffset = ghostBrickPos - endEffectorPos;
+
+            
+            % Update brick position
+            transformedVertices = [vertices, ones(size(vertices, 1), 1)] * endEffectorTransform';
+            % Add offset to all vertices of the brick
+            transformedVertices(:,1:3) = transformedVertices(:,1:3) - currentOffset;
+            set(bricks{brickIndex}, 'Vertices', transformedVertices(:, 1:3));
+
+            if mod(i, 10) == 0  % Debug every 10 steps
+                % Get current positions
+                endEffectorPos = endEffectorTransform(1:3, 4)';
+                currentBrickPos = mean(get(bricks{brickIndex}, 'Vertices'));
+                currentOffset = currentBrickPos - endEffectorPos;
+
+                %disp('---Debug Position Info---');
+                %disp('End effector position:');
+                %disp(endEffectorPos);
+                %disp('Current brick position:');
+                %disp(currentBrickPos);
+                %disp('Ghost brick position:');
+                %disp(ghostBrickPos);
+                %disp('Current offset (brick - end effector):');
+                %disp(currentOffset);
+            end
+            
             gripper.attachToEndEffector(endEffectorTransform);
             drawnow();
         end
     end
-
-    % Force brick to final position if no E-Stop
-    if ~estop_activated
-        disp('Forcing brick to final position.');
-        currentBrickVertices = get(bricks{brickIndex}, 'Vertices');
-        translation = finalBrick - mean(currentBrickVertices);
-        set(bricks{brickIndex}, 'Vertices', currentBrickVertices + translation);
-    end
 end
-
-
-
-
 
 %% Function to move IIWA through three positions
 function move_iiwa_three_positions(r2, blade2, blade2Vertices)
@@ -199,10 +238,10 @@ function move_iiwa_three_positions(r2, blade2, blade2Vertices)
     end
 end
 
-% PS4 control function for the IIWA end effector
+% PS4 control function for the IIWA end effector with E-Stop and Resume
 function move_iiwa_with_ps4(r2, blade2, blade2Vertices)
-    global ps4_control_enabled estop_activated resume_requested;  
-    joy = vrjoystick(1); % Initialize joystick
+    global ps4_control_enabled estop_activated resume_requested;
+    joy = vrjoystick(1); % Initialize joystick; may need to change ID if multiple joysticks
     duration = 300;  % Duration of control session
     dt = 0.15;       % Time step for updates
     Kv = 0.3;        % Linear velocity gain
