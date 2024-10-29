@@ -38,68 +38,77 @@ classdef move_robot < handle
             transformedBlade2Vertices = [blade2Vertices, ones(size(blade2Vertices, 1), 1)] * r2.model.fkine(r2.model.getpos()).T';
             set(blade2, 'Vertices', transformedBlade2Vertices(:, 1:3));
 
-            % Define collision detection parameters
+            % Define point cloud-based collision parameters
             obstaclePoints = move_robot.generate_obstacle_point_clouds([-1.0, -0.5, 0.8; -1.3, -0.6, 0.75], 0.05);
             collisionThreshold = 0.05;  % Collision threshold distance
 
-            % Main loop to handle robot movements
-            global selected_brick;
+            % Default positions for resetting on Resume
+            ur3e_default_pos = r.model.getpos();
+            iiwa_default_pos = r2.model.getpos();
+
+            % Initialize GUI with persistent control
+            global selected_brick iiwa_movement_requested movement_requested ps4_control_enabled estop_activated resume_requested;
             select_brick_gui();
 
+            % Main control loop to allow repeated GUI usage
             while true
-                if ~isempty(selected_brick)
-                    disp('Moving UR3 to Brick');
-                    move_robot.move_ur3_to_brick(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstaclePoints, collisionThreshold);
+                % Check for E-Stop
+                if estop_activated
+                    disp('E-Stop activated. Stopping all movements.');
                     selected_brick = [];
+                    iiwa_movement_requested = false;
+                    ps4_control_enabled = false;
+
+                    while ~resume_requested
+                        drawnow();
+                        pause(0.1);
+                    end
+
+                    % Reset robots to default positions on Resume
+                    r.model.animate(ur3e_default_pos);
+                    r2.model.animate(iiwa_default_pos);
+                    disp('Resuming simulation. Robots reset to default positions.');
+                    estop_activated = false;
+                    resume_requested = false;
                 end
+
+                % Start PS4 control if requested
+                if ps4_control_enabled && ~estop_activated
+                    disp('Starting PS4 control of IIWA end effector...');
+                    move_iiwa_with_ps4(r2, blade2, blade2Vertices);
+                    ps4_control_enabled = false;
+                end
+
+                % Execute movements based on GUI selections
+                if movement_requested && ~estop_activated
+                    if iiwa_movement_requested && ~isempty(selected_brick)
+                        disp('Moving IIWA to preset positions...');
+                        move_iiwa_three_positions(r2, blade2, blade2Vertices);
+                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstaclePoints, collisionThreshold);
+                    
+                    elseif iiwa_movement_requested
+                        disp('Moving only IIWA to preset positions...');
+                        move_iiwa_three_positions(r2, blade2, blade2Vertices);
+                    
+                    elseif ~isempty(selected_brick)
+                        disp('Moving only UR3 to Brick');
+                        move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, selected_brick, obstaclePoints, collisionThreshold);
+                    end
+
+                    selected_brick = [];
+                    iiwa_movement_requested = false;
+                    movement_requested = false;
+                end
+
                 pause(0.1);
             end
-        end
-
-        %% Move UR3 to the selected brick and detect collisions using point clouds
-        function move_ur3_to_brick(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex, obstaclePoints, collisionThreshold)
-            disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
-            
-            % Set start and final transforms
-            startTr = double(r.model.fkine(r.model.getpos()).T);
-            currentBrick = brickMatrix(brickIndex, :);
-            brickTr = double(transl(currentBrick) * troty(pi));
-
-            % Compute trajectory
-            [qMatrix, ~] = controller.computeTrajectory(startTr, brickTr, 5);
-
-            % Traverse the trajectory and detect collisions
-            for i = 1:size(qMatrix, 1)
-                r.model.animate(qMatrix(i, :));
-                currentTr = r.model.fkine(r.model.getpos()).T;
-                endEffectorPosition = currentTr(1:3, 4)';
-
-                % Check for collision using point cloud-based detection
-                if move_robot.is_collision_detected_point_cloud(endEffectorPosition, obstaclePoints, collisionThreshold)
-                    % Log collision coordinates
-                    disp(['Collision detected at: ', mat2str(endEffectorPosition)]);
-                    
-                    % Mark collision point in the 3D simulation environment
-                    plot3(endEffectorPosition(1), endEffectorPosition(2), endEffectorPosition(3), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
-                end
-
-                % Attach gripper and update brick position
-                gripper.attachToEndEffector(currentTr);
-                move_robot.update_brick_position(bricks, brickIndex, currentTr, gripper, brickMatrix);
-                drawnow();
-            end
-
-            % Finalize brick position
-            move_robot.finalize_brick_position(bricks, brickIndex, finalBrickMatrix);
         end
 
         %% Generate point clouds for obstacles
         function obstaclePoints = generate_obstacle_point_clouds(obstacleCenters, spacing)
             obstaclePoints = [];
-            % Loop through each obstacle and create point cloud
             for i = 1:size(obstacleCenters, 1)
                 center = obstacleCenters(i, :);
-                % Generate points around the center using a cubic grid pattern
                 [X, Y, Z] = meshgrid(center(1)-0.1:spacing:center(1)+0.1, ...
                                      center(2)-0.1:spacing:center(2)+0.1, ...
                                      center(3)-0.1:spacing:center(3)+0.1);
@@ -110,34 +119,98 @@ classdef move_robot < handle
 
         %% Check for collision using point cloud data
         function collisionDetected = is_collision_detected_point_cloud(position, obstaclePoints, threshold)
-            % Calculate distances from end-effector position to all obstacle points
             distances = sqrt(sum((obstaclePoints - position).^2, 2));
-            % Detect collision if any distance is below the threshold
             collisionDetected = any(distances < threshold);
         end
+    end
+end
 
-        %% Finalize brick position at the target
-        function finalize_brick_position(bricks, brickIndex, finalBrickMatrix)
-            finalBrick = finalBrickMatrix(brickIndex, :);
-            currentBrickVertices = get(bricks{brickIndex}, 'Vertices');
-            translation = finalBrick - mean(currentBrickVertices);
-            set(bricks{brickIndex}, 'Vertices', currentBrickVertices + translation);
-            disp('Brick position finalized.');
+%% Function to move UR3 to the selected brick using RMRC with point cloud-based collision detection
+function move_ur3_to_brick_rmrc(r, controller, gripper, bricks, brickMatrix, finalBrickMatrix, brickIndex, obstaclePoints, collisionThreshold)
+    global estop_activated;
+    disp(['Moving UR3e to Brick ', num2str(brickIndex)]);
+    
+    % Current position transform
+    startTr = double(r.model.fkine(r.model.getpos()).T);
+    
+    % Transform to brick position
+    currentBrick = brickMatrix(brickIndex, :);
+    brickTr = double(transl(currentBrick) * troty(pi));
+    
+    % Move to brick using RMRC with internal DLS for smoothness
+    [qMatrix, ~] = controller.computeTrajectory(startTr, brickTr, 5);
+    originalBrickVertices = get(bricks{brickIndex}, 'Vertices');
+    brickToEndEffectorOffset = eye(4);
+
+    % Initial detour distance multiplier for adaptive detours
+    detourMultiplier = 1;
+
+    i = 1; % Start index for animation loop
+
+    % Main movement loop with RMRC path recalculation upon collision
+    while i <= size(qMatrix, 1) && ~estop_activated
+        % Animate the robot and update gripper position
+        r.model.animate(qMatrix(i, :));
+        endEffectorTransform = r.model.fkine(r.model.getpos()).T;
+        gripper.attachToEndEffector(endEffectorTransform);
+
+        % Define end-effector position for collision check
+        endEffectorPosition = endEffectorTransform(1:3, 4)';
+
+        % Check for collision with point cloud-based detection
+        if move_robot.is_collision_detected_point_cloud(endEffectorPosition, obstaclePoints, collisionThreshold)
+            disp(['Collision detected at end effector: ', mat2str(endEffectorPosition)]);
+            collisionDetected = true;
+
+            % Adaptive detour calculation
+            theta = atan2(endEffectorPosition(2), endEffectorPosition(1));
+            detourPoint = endEffectorPosition + [cos(theta) * detourMultiplier, sin(theta) * detourMultiplier, detourMultiplier];
+            detourTr = transl(detourPoint) * troty(pi);
+            
+            % Recalculate path to detour point
+            [detourQMatrix, ~] = controller.computeTrajectory(endEffectorTransform, detourTr, 3);
+            
+            % Concatenate detour path with remaining original path
+            remainingQMatrix = qMatrix(i+1:end, :);
+            qMatrix = [qMatrix(1:i, :); detourQMatrix; remainingQMatrix];
+            
+            % Increase detour multiplier for repeated collision avoidance
+            detourMultiplier = detourMultiplier * 1.2;
+            i = i + size(detourQMatrix, 1); % Move index to end of detour path
+            continue; % Restart loop with new path
         end
 
-        %% Helper function to update brick position based on the end-effector transform
-        function update_brick_position(bricks, brickIndex, endEffectorTransform, gripper, brickMatrix)
-            % Get the original brick vertices
-            originalBrickVertices = get(bricks{brickIndex}, 'Vertices');
-            
-            % Define the transformation matrix for the brick's initial position
-            brickTransform = endEffectorTransform * transl(brickMatrix(brickIndex, :)) * [eye(3), [0;0;0]; 0 0 0 1];
-            
-            % Transform vertices
+        % Increment if no collision detected
+        i = i + 1;
+        drawnow();
+    end
+
+    % Final move to place the brick at the final destination
+    if ~estop_activated
+        finalBrick = finalBrickMatrix(brickIndex, :);
+        finalTr = double(transl(finalBrick) * troty(pi));
+        
+        % Compute RMRC trajectory to final destination with DLS for smoothness
+        [qMatrix, ~] = controller.computeTrajectory(endEffectorTransform, finalTr, 5);
+        
+        % Animate to the final position
+        for i = 1:size(qMatrix, 1)
+            if estop_activated, break; end
+            r.model.animate(qMatrix(i, :));
+            endEffectorTransform = r.model.fkine(r.model.getpos()).T;
+            brickTransform = endEffectorTransform * brickToEndEffectorOffset;
             transformedBrickVertices = [originalBrickVertices, ones(size(originalBrickVertices, 1), 1)] * brickTransform';
-            
-            % Update brick position by setting transformed vertices
             set(bricks{brickIndex}, 'Vertices', transformedBrickVertices(:, 1:3));
+            gripper.attachToEndEffector(endEffectorTransform);
+            drawnow();
         end
+    end
+
+    % Force the brick to final position if not stopped
+    if ~estop_activated
+        disp('Forcing brick to final position.');
+        currentBrickVertices = get(bricks{brickIndex}, 'Vertices');
+        translation = finalBrick - mean(currentBrickVertices);
+        set(bricks{brickIndex}, 'Vertices', currentBrickVertices + translation);
     end
 end
