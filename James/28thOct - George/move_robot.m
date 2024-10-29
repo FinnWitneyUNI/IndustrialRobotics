@@ -82,7 +82,7 @@ classdef move_robot < handle
             semiMinorAxis = 0.25;  % Slightly reduced Y-axis range for obstacles
             platformSemiMajor = 0.65; % Slightly larger X range for platform
             platformSemiMinor = 0.45; % Slightly larger Y range for platform
-            acceptableZThreshold = 0.2;  % Increased threshold for Z-coordinate discrepancy
+            acceptableZThreshold = 0.4;  % Increased threshold for Z-coordinate discrepancy
             detourZOffset = 0.1;  % Z-offset to lift detour points above the platform level
 
             % Visualize elliptical safety zones and platform avoidance zone
