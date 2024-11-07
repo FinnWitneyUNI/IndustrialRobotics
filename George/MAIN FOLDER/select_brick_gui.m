@@ -41,7 +41,7 @@ function select_brick_gui(r2, r)
     uicontrol('Style', 'pushbutton', 'Position', [50, 280, 200, 30], 'String', 'E-Stop', 'Callback', @activate_estop);
 
     % Resume button
-    uicontrol('Style', 'pushbutton', 'Position', [50, 240, 200, 30], 'String', 'Resume', 'Callback', @resume_simulation);
+    uicontrol('Style', 'pushbutton', 'Position', [50, 240, 200, 30], 'String', 'Reset', 'Callback', @resume_simulation);
 
     % IIWA End Effector XYZ Controls
     uicontrol('Style', 'text', 'Position', [300, 540, 150, 20], 'String', 'IIWA End Effector XYZ');
